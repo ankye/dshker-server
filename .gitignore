@@ -1,0 +1,8 @@
+/bin/
+/artifacts/
+*.db
+*.db-shm
+*.db-wal
+*.key
+*.pem
+/config.json

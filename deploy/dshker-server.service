@@ -1,0 +1,21 @@
+[Unit]
+Description=DSHKer standalone pairing server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dshker-server
+Group=dshker-server
+ExecStart=/usr/local/bin/dshker-server serve --config /etc/dshker-server/config.json
+WorkingDirectory=/var/lib/dshker-server
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dshker-server
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

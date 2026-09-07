@@ -1,0 +1,446 @@
+{
+  "change": "add-dshker-user-networks: standalone server local acceptance",
+  "risk": "data_critical",
+  "scope_note": "Server only. Desktop UI, physical NAT matrix and public deployment remain unaccepted under their own changes. Root workspace vendor is blocked by unrelated missing OneIsland packages; readonly module mode retains go.work and changes no production routing.",
+  "production_files": [
+    "cmd/dshker-server/main.go",
+    "internal/coordinator/config.go",
+    "internal/coordinator/store.go",
+    "internal/coordinator/users.go",
+    "internal/coordinator/networks.go",
+    "internal/coordinator/enrollment.go",
+    "internal/coordinator/certificates.go",
+    "internal/coordinator/pairing.go",
+    "internal/coordinator/pair_identity.go",
+    "internal/coordinator/sessions.go",
+    "internal/coordinator/stun.go",
+    "internal/coordinator/server.go",
+    "internal/coordinator/user_api.go",
+    "internal/coordinator/signaling.go",
+    "internal/protocol/json.go",
+    "internal/protocol/signal.go",
+    "internal/protocol/lease.go",
+    "internal/protocol/frame.go",
+    "tools/check-boundaries/main.go",
+    "tools/smoke/main.go"
+  ],
+  "test_files": [
+    "cmd/dshker-server/main_test.go",
+    "internal/coordinator/config_test.go",
+    "internal/coordinator/network_test.go",
+    "internal/coordinator/store_test.go",
+    "internal/coordinator/users_test.go",
+    "internal/coordinator/scope_test.go",
+    "internal/coordinator/pair_identity_test.go",
+    "internal/protocol/protocol_test.go",
+    "internal/protocol/lease_test.go",
+    "tools/check-boundaries/main_test.go",
+    "tools/smoke/main_test.go"
+  ],
+  "live_test_files": [
+    "tools/smoke/main.go"
+  ],
+  "state_matrix": [
+    {
+      "state": "success",
+      "test": "TestGinUserAPIRealTLSAndStrictAdmission"
+    },
+    {
+      "state": "no_op",
+      "test": "TestNetworkNoOpPreservesIdentityAndRejectedInput"
+    },
+    {
+      "state": "partial",
+      "test": "TestPartialInitializationFailsWithoutOverwritingIdentity"
+    },
+    {
+      "state": "recovery",
+      "test": "TestCertificateRenewalPreservesPairAndRecoveryRejectsRevocation"
+    },
+    {
+      "state": "stale_timeout",
+      "test": "TestUserSessionsIsolationRestartLogoutAndDisable"
+    },
+    {
+      "state": "reset",
+      "test": "TestPairApprovalVisibilityRevocationAndRestart"
+    },
+    {
+      "state": "superseded",
+      "test": "TestDeleteNetworkAndEnrollmentAreAtomic"
+    }
+  ],
+  "field_bindings": [
+    {
+      "production_file": "internal/coordinator/pair_identity.go",
+      "field": "pairId,userId,deviceId,publicKey,presence",
+      "source": "authenticated pair participant, current network bindings and heartbeat",
+      "test": "TestPairIdentityRealTLSReadbackAndAdmission",
+      "assertion": "pair identity readback differs from persisted participants",
+      "state": "success",
+      "identity_keys": ["serviceId", "userId", "networkId", "deviceId", "pairId", "revision"],
+      "missing_semantics": "Reject missing, expired, revoked, unrelated or unbound pair identities; never return credentials or infer a peer key."
+    },
+    {
+      "production_file": "cmd/dshker-server/main.go",
+      "field": "userId",
+      "source": "CLI user-add -> SQLite users",
+      "test": "TestCLIInitCreateDisableAndNoSecretOutput",
+      "assertion": "CLI disable did not persist",
+      "state": "reset",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/config.go",
+      "field": "httpsOrigin,wssUrl,paths",
+      "source": "explicit JSON config",
+      "test": "TestConfigStrictInputsAndExactReadback",
+      "assertion": "config readback substituted explicit values",
+      "state": "success",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/store.go",
+      "field": "serviceId,CA,schema",
+      "source": "SQLite metadata and PKCS8 key",
+      "test": "TestInitializeAndRestartIdentity",
+      "assertion": "identity changed at restart",
+      "state": "reset",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/users.go",
+      "field": "userId,session hash,expires",
+      "source": "users and user_sessions",
+      "test": "TestUserSessionsIsolationRestartLogoutAndDisable",
+      "assertion": "restart lost session",
+      "state": "reset",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/networks.go",
+      "field": "networkId,userId,binding active",
+      "source": "networks and bindings transaction",
+      "test": "TestPrivateNetworksMembershipAndRevocation",
+      "assertion": "rebind restored pairing",
+      "state": "recovery",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/enrollment.go",
+      "field": "deviceId,publicKey,token hash",
+      "source": "CSR and scoped one-time grant",
+      "test": "TestEnrollmentConcurrentConsumptionAndReadback",
+      "assertion": "persisted identity differs",
+      "state": "success",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/certificates.go",
+      "field": "deviceId,publicKey,certificate",
+      "source": "CSR renewal and revocation state",
+      "test": "TestCertificateRenewalPreservesPairAndRecoveryRejectsRevocation",
+      "assertion": "same-key renewal changed identity",
+      "state": "recovery",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/pairing.go",
+      "field": "pairId,networkId,revision",
+      "source": "network binding and signed share",
+      "test": "TestCrossNetworkInvitationDoesNotConsumeShare",
+      "assertion": "rejection consumed share or changed network",
+      "state": "recovery",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/sessions.go",
+      "field": "attemptId,expiresAt,revision",
+      "source": "active pair + online device + lease",
+      "test": "TestPresenceLeaseExpiryAndRevocation",
+      "assertion": "expired lease revived",
+      "state": "stale_timeout",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/stun.go",
+      "field": "mapped source address",
+      "source": "actual UDP datagram source",
+      "test": "TestRealSTUNReportsSourceAndRejectsOtherMethods",
+      "assertion": "STUN did not report actual source",
+      "state": "success",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/server.go",
+      "field": "deviceId,publicKey",
+      "source": "Gin mTLS authentication + SQLite",
+      "test": "TestRealTLSIdentityEnrollmentAndReadback",
+      "assertion": "mTLS readback mismatch",
+      "state": "success",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/user_api.go",
+      "field": "networkId,userId",
+      "source": "Gin bearer subject and owned network",
+      "test": "TestGinUserAPIRealTLSAndStrictAdmission",
+      "assertion": "user token replaced device proof",
+      "state": "no_op",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/coordinator/signaling.go",
+      "field": "attemptId,sequence,sender",
+      "source": "authenticated WSS and verified signal",
+      "test": "TestRealWSSForwardsOnlyAuthorizedSignedSignal",
+      "assertion": "forward changed signed scope",
+      "state": "success",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/protocol/json.go",
+      "field": "explicit typed JSON fields",
+      "source": "request bytes",
+      "test": "TestStrictJSON",
+      "assertion": "accepted ambiguous or invalid input",
+      "state": "no_op",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/protocol/signal.go",
+      "field": "pairId,attemptId,generation,signature",
+      "source": "signed canonical control envelope",
+      "test": "TestSignalSignatureAndScope",
+      "assertion": "wire readback changed signed fields",
+      "state": "success",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/protocol/lease.go",
+      "field": "userId,networkId,signature",
+      "source": "signed scoped authorization",
+      "test": "TestLeaseGoldenUserNetworkAndTampering",
+      "assertion": "cross-network lease accepted",
+      "state": "no_op",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "internal/protocol/frame.go",
+      "field": "streamId,generation,data length",
+      "source": "strict peer frame contract snapshot",
+      "test": "TestFrameLimitsAndGeneration",
+      "assertion": "accepted stale or cross-peer frame",
+      "state": "stale_timeout",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "tools/check-boundaries/main.go",
+      "field": "production import path,module replace",
+      "source": "go list production entry dependency graph",
+      "test": "TestStandaloneProductionDependencyBoundary",
+      "assertion": "standalone boundary violated",
+      "state": "success",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    },
+    {
+      "production_file": "tools/smoke/main.go",
+      "field": "networkId,userId,deviceId",
+      "source": "real binary HTTPS write/readback",
+      "test": "TestSmokeRequiresExplicitProductionBinary",
+      "assertion": "accepted missing production binary",
+      "state": "no_op",
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "attemptId",
+        "revision"
+      ],
+      "missing_semantics": "Reject missing or mismatched scope; never guess another identity, network, credential, or runtime."
+    }
+  ],
+  "real_commands": [
+    {
+      "command": "go test -mod=readonly -race ./...",
+      "no_mock": true
+    },
+    {
+      "command": "go vet -mod=readonly ./... && go run -mod=readonly ./tools/check-boundaries",
+      "no_mock": true
+    },
+    {
+      "command": "go build -mod=readonly -trimpath -o bin/dshker-server ./cmd/dshker-server && go run -mod=readonly ./tools/smoke --binary \"$PWD/bin/dshker-server\" --report artifacts/server-smoke.json",
+      "no_mock": true
+    }
+  ],
+  "runtime_evidence": [
+    {
+      "artifact": "artifacts/server-smoke.json"
+    }
+  ]
+}

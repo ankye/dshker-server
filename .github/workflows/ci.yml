@@ -1,0 +1,35 @@
+name: Standalone server
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - run: go mod download
+      - run: go mod verify
+      - run: test -z "$(gofmt -l cmd internal tools)"
+      - run: go test -race -count=1 ./...
+      - run: go vet ./...
+      - run: go run ./tools/check-boundaries
+      - run: go mod tidy && git diff --exit-code -- go.mod go.sum
+      - name: Build Linux amd64
+        run: go build -trimpath -o bin/dshker-server-linux-amd64 ./cmd/dshker-server
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+      - name: Build Linux arm64
+        run: go build -trimpath -o bin/dshker-server-linux-arm64 ./cmd/dshker-server
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: arm64

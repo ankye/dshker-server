@@ -1,0 +1,11 @@
+{
+  "httpsOrigin": "https://pair.example.com:8443",
+  "wssUrl": "wss://pair.example.com:8443/v1/signals",
+  "stunAddress": "pair.example.com:3478",
+  "httpsListen": "0.0.0.0:8443",
+  "stunListen": "0.0.0.0:3478",
+  "tlsCertPath": "/etc/dshker-server/tls.crt",
+  "tlsKeyPath": "/etc/dshker-server/tls.key",
+  "databasePath": "/var/lib/dshker-server/state.db",
+  "identityKeyPath": "/var/lib/dshker-server/identity.key"
+}
