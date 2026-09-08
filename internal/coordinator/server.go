@@ -88,6 +88,7 @@ func (server *Server) routes() *gin.Engine {
 	})
 	router.POST("/v1/identity", endpoint(func(body identityRequest) (any, error) { return server.identity(body.Nonce) }))
 	router.POST("/v1/enroll", endpoint(func(body Enrollment) (any, error) { return server.store.Enroll(body, time.Now()) }))
+	router.POST("/v1/network/join", endpoint(func(body NetworkJoin) (any, error) { return server.store.JoinNetwork(body, time.Now()) }))
 	router.POST("/v1/enrollment-query", endpoint(func(body EnrollmentQuery) (any, error) { return server.store.ReadEnrollment(body, time.Now()) }))
 	router.POST("/v1/recover-certificate", endpoint(func(body CertificateRecovery) (any, error) {
 		certificate, err := server.store.RecoverCertificate(body, time.Now())

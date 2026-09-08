@@ -107,6 +107,7 @@ func TestRealWSSForwardsOnlyAuthorizedSignedSignal(t *testing.T) {
 	a, aKey, _, _ := enroll(t, server.store, now)
 	b, bKey, _, _ := enroll(t, server.store, now)
 	pair := pairDevices(t, server.store, a, b, now)
+	_ = pair
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	dial := func(device Device, key ed25519.PrivateKey) *websocket.Conn {
@@ -126,12 +127,12 @@ func TestRealWSSForwardsOnlyAuthorizedSignedSignal(t *testing.T) {
 		return connection
 	}
 	first, second := dial(a, aKey), dial(b, bKey)
-	lease, err := server.sessions.Begin(a.ID, pair.ID, 1, now)
+	lease, err := server.sessions.Begin(a.ID, b.ID, 1, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sdp, _ := json.Marshal(protocol.SDP{SDP: "v=0\r\n"})
-	signal := protocol.Signal{Version: 1, Type: "offer", MessageID: protocol.NewID(), AttemptID: lease.AttemptID, Generation: 1, FromDeviceID: a.ID, ToDeviceID: b.ID, PairID: pair.ID, Sequence: 1, ExpiresAt: now.Unix() + 60, Payload: base64.RawURLEncoding.EncodeToString(sdp)}
+	signal := protocol.Signal{Version: 1, Type: "offer", MessageID: protocol.NewID(), AttemptID: lease.AttemptID, Generation: 1, FromDeviceID: a.ID, ToDeviceID: b.ID, PairID: b.ID, Sequence: 1, ExpiresAt: now.Unix() + 60, Payload: base64.RawURLEncoding.EncodeToString(sdp)}
 	signal.Sign(aKey)
 	data, _ := json.Marshal(signal)
 	if err = first.Write(ctx, websocket.MessageText, data); err != nil {
@@ -211,7 +212,7 @@ func TestPresenceLeaseExpiryAndRevocation(t *testing.T) {
 	b, _, _, _ := enroll(t, store, now)
 	pair := pairDevices(t, store, a, b, now)
 	sessions := NewSessions(store)
-	if _, err := sessions.Begin(a.ID, pair.ID, 1, now); err == nil {
+	if _, err := sessions.Begin(a.ID, b.ID, 1, now); err == nil {
 		t.Fatal("offline accepted")
 	}
 	for _, id := range []string{a.ID, b.ID} {
@@ -222,24 +223,27 @@ func TestPresenceLeaseExpiryAndRevocation(t *testing.T) {
 	if sessions.Presence(a.ID, now.Add(30*time.Second)) != "stale" {
 		t.Fatal("presence did not expire")
 	}
-	lease, err := sessions.Begin(a.ID, pair.ID, 1, now)
+	lease, err := sessions.Begin(a.ID, b.ID, 1, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = sessions.Begin(b.ID, pair.ID, 1, now); err == nil {
+	if _, err = sessions.Begin(b.ID, a.ID, 1, now); err == nil {
 		t.Fatal("simultaneous dial accepted")
 	}
-	if _, err = sessions.Renew(a.ID, pair.ID, lease.AttemptID, now.Add(time.Minute)); err == nil {
+	if _, err = sessions.Renew(a.ID, b.ID, lease.AttemptID, now.Add(time.Minute)); err == nil {
 		t.Fatal("expired lease revived")
 	}
-	if _, err = sessions.Renew(a.ID, pair.ID, lease.AttemptID, now.Add(20*time.Second)); err != nil {
+	if _, err = sessions.Renew(a.ID, b.ID, lease.AttemptID, now.Add(20*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = store.ActOnPair(b.ID, pair.ID, "revoke", "", now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = sessions.Renew(a.ID, pair.ID, lease.AttemptID, now.Add(21*time.Second)); err == nil {
-		t.Fatal("revoked lease renewed")
+	if err = store.UnbindDevice(lease.UserID, lease.NetworkID, b.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = sessions.Renew(a.ID, b.ID, lease.AttemptID, now.Add(21*time.Second)); err == nil {
+		t.Fatal("unbound lease renewed")
 	}
 	if NewSessions(store).Presence(a.ID, now) != "offline" {
 		t.Fatal("restart restored stale online presence")

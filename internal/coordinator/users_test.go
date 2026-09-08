@@ -116,14 +116,17 @@ func TestPrivateNetworksMembershipAndRevocation(t *testing.T) {
 	sessions := NewSessions(store)
 	sessions.Heartbeat(a.ID, now)
 	sessions.Heartbeat(b.ID, now)
-	lease, err := sessions.Begin(a.ID, pair.ID, 1, now)
-	if err != nil || lease.UserID != n.UserID || lease.NetworkID != n.ID {
+	lease, err := sessions.Begin(a.ID, b.ID, 1, now)
+	if err != nil || lease.UserID != n.UserID || lease.NetworkID == "" {
 		t.Fatal("lease scope missing", err)
 	}
 	if err = store.UnbindDevice(n.UserID, n.ID, a.ID, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = sessions.Renew(a.ID, pair.ID, lease.AttemptID, now); err == nil {
+	if err = store.UnbindDevice(n.UserID, secondNetwork.ID, a.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = sessions.Renew(a.ID, b.ID, lease.AttemptID, now); err == nil {
 		t.Fatal("renewed unbound lease")
 	}
 	if err = store.BindDevice(n.UserID, n.ID, a.ID); err != nil {
@@ -131,6 +134,9 @@ func TestPrivateNetworksMembershipAndRevocation(t *testing.T) {
 	}
 	if pair, err = store.Pair(a.ID, pair.ID); err != nil || pair.State != "revoked" {
 		t.Fatal("rebind restored pairing", err)
+	}
+	if err = store.BindDevice(n.UserID, secondNetwork.ID, a.ID); err != nil {
+		t.Fatal(err)
 	}
 	if devices, err := store.NetworkDevices(n.UserID, secondNetwork.ID); err != nil || len(devices) != 2 {
 		t.Fatal("unbind crossed network", err)

@@ -1,7 +1,7 @@
 {
-  "change": "add-dshker-user-networks: standalone server local acceptance",
+  "change": "add-dshker-user-networks: standalone server local acceptance (login-free join + network capacity)",
   "risk": "data_critical",
-  "scope_note": "Server only. Desktop UI, physical NAT matrix and public deployment remain unaccepted under their own changes. Root workspace vendor is blocked by unrelated missing OneIsland packages; readonly module mode retains go.work and changes no production routing.",
+  "scope_note": "Server only. Desktop UI, physical NAT matrix and public deployment remain unaccepted under their own changes. Root workspace vendor is blocked by unrelated missing OneIsland packages; readonly module mode retains go.work and changes no production routing. Added /v1/network/join (login-free enrollment by networkId, device owned by network owner) and per-network maxDevices capacity (default 10, owner may raise to 20/30; enforced on enroll/join/bind). Desktop UI, physical NAT matrix and public deployment remain unaccepted under their own changes.",
   "production_files": [
     "cmd/dshker-server/main.go",
     "internal/coordinator/config.go",
@@ -35,7 +35,8 @@
     "internal/protocol/protocol_test.go",
     "internal/protocol/lease_test.go",
     "tools/check-boundaries/main_test.go",
-    "tools/smoke/main_test.go"
+    "tools/smoke/main_test.go",
+    "internal/coordinator/join_capacity_test.go"
   ],
   "live_test_files": [
     "tools/smoke/main.go"
@@ -78,7 +79,14 @@
       "test": "TestPairIdentityRealTLSReadbackAndAdmission",
       "assertion": "pair identity readback differs from persisted participants",
       "state": "success",
-      "identity_keys": ["serviceId", "userId", "networkId", "deviceId", "pairId", "revision"],
+      "identity_keys": [
+        "serviceId",
+        "userId",
+        "networkId",
+        "deviceId",
+        "pairId",
+        "revision"
+      ],
       "missing_semantics": "Reject missing, expired, revoked, unrelated or unbound pair identities; never return credentials or infer a peer key."
     },
     {

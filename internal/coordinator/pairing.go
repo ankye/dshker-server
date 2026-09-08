@@ -197,3 +197,21 @@ func (store *Store) authorizePair(pair Pair) error {
 	}
 	return nil
 }
+
+// sameNetwork reports whether both devices are actively bound to one common
+// network, which is the entire authorization for direct connections.
+func (store *Store) sameNetwork(a, b string) bool {
+	var count int
+	row := store.db.QueryRow("SELECT count(*) FROM bindings x JOIN bindings y ON x.network_id=y.network_id WHERE x.device_id=? AND y.device_id=? AND x.active=1 AND y.active=1", a, b)
+	return row.Scan(&count) == nil && count > 0
+}
+
+// sharedNetworkID returns one network both devices are actively bound to.
+func (store *Store) sharedNetworkID(a, b string) (string, error) {
+	var networkID string
+	row := store.db.QueryRow("SELECT x.network_id FROM bindings x JOIN bindings y ON x.network_id=y.network_id WHERE x.device_id=? AND y.device_id=? AND x.active=1 AND y.active=1 LIMIT 1", a, b)
+	if err := row.Scan(&networkID); err != nil {
+		return "", errors.New("p2p.pair_unauthorized")
+	}
+	return networkID, nil
+}

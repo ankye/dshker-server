@@ -24,6 +24,18 @@ type Enrollment struct {
 	Name      string `json:"name"`
 }
 
+// NetworkJoin is a login-free enrollment keyed by the target network id. The
+// joining computer already owns a local device identity; presenting a valid
+// networkId plus proof of private-key ownership over the CSR is enough to be
+// admitted to that network's device directory. Login is only required later,
+// when meshing (pairing/connecting) devices.
+type NetworkJoin struct {
+	RequestID string `json:"requestId"`
+	NetworkID string `json:"networkId"`
+	CSR       string `json:"csr"`
+	Name      string `json:"name"`
+}
+
 type Device struct {
 	ID          string `json:"deviceId"`
 	UserID      string `json:"userId"`
@@ -77,6 +89,11 @@ func (store *Store) Enroll(request Enrollment, now time.Time) (Device, error) {
 		return Device{}, err
 	}
 	device.UserID = userID
+	if fits, err := bindingFitsCapacity(tx, networkID); err != nil {
+		return Device{}, err
+	} else if !fits {
+		return Device{}, errors.New("p2p.network_full")
+	}
 	if err = consumeToken(tx, request.Token, now); err != nil {
 		return Device{}, err
 	}
@@ -88,6 +105,61 @@ func (store *Store) Enroll(request Enrollment, now time.Time) (Device, error) {
 		return Device{}, err
 	}
 	if _, err = tx.Exec("INSERT INTO audit(event,subject,at) VALUES ('enrolled',?,?)", device.ID, now.Unix()); err != nil {
+		return Device{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Device{}, err
+	}
+	return device, nil
+}
+
+// JoinNetwork admits a device into a network by its network id, without a
+// user login or an owner-issued token. The device is owned by the network's
+// owner user and actively bound to that network, so network co-membership is
+// what later authorizes meshing. A network at its device capacity rejects the
+// join with p2p.network_full.
+func (store *Store) JoinNetwork(request NetworkJoin, now time.Time) (Device, error) {
+	var device Device
+	if !protocol.ValidID(request.RequestID) || !protocol.ValidID(request.NetworkID) || request.Name != strings.TrimSpace(request.Name) || len(request.Name) < 1 || len(request.Name) > 256 || strings.ContainsAny(request.Name, "\r\n\x00") {
+		return device, errors.New("p2p.invalid_enrollment")
+	}
+	public, err := csrKey(request.CSR)
+	if err != nil {
+		return device, err
+	}
+	device = Device{ID: protocol.NewID(), PublicKey: public, Name: request.Name}
+	device.Certificate, err = store.issueCertificate(device.ID, public, now)
+	if err != nil {
+		return Device{}, err
+	}
+	tx, err := store.db.Begin()
+	if err != nil {
+		return Device{}, err
+	}
+	defer tx.Rollback()
+	// The network must exist and be live; its owner owns the joining device.
+	var ownerUserID string
+	if err = tx.QueryRow("SELECT user_id FROM networks WHERE id=? AND deleted=0", request.NetworkID).Scan(&ownerUserID); err != nil {
+		return Device{}, errors.New("p2p.network_unauthorized")
+	}
+	var ownerDisabled int
+	if err = tx.QueryRow("SELECT disabled FROM users WHERE id=?", ownerUserID).Scan(&ownerDisabled); err != nil || ownerDisabled != 0 {
+		return Device{}, errors.New("p2p.network_unauthorized")
+	}
+	if fits, err := bindingFitsCapacity(tx, request.NetworkID); err != nil {
+		return Device{}, err
+	} else if !fits {
+		return Device{}, errors.New("p2p.network_full")
+	}
+	device.UserID = ownerUserID
+	_, err = tx.Exec("INSERT INTO devices(id,user_id,public_key,name,certificate,request_id) VALUES (?,?,?,?,?,?)", device.ID, ownerUserID, []byte(public), device.Name, device.Certificate, request.RequestID)
+	if err != nil {
+		return Device{}, errors.New("p2p.device_already_enrolled")
+	}
+	if _, err = tx.Exec("INSERT INTO bindings VALUES(?,?,1)", request.NetworkID, device.ID); err != nil {
+		return Device{}, err
+	}
+	if _, err = tx.Exec("INSERT INTO audit(event,subject,at) VALUES ('network-join',?,?)", device.ID, now.Unix()); err != nil {
 		return Device{}, err
 	}
 	if err = tx.Commit(); err != nil {

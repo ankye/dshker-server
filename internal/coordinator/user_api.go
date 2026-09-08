@@ -21,6 +21,9 @@ type networkRequest struct {
 type bindingRequest struct {
 	DeviceID string `json:"deviceId"`
 }
+type limitRequest struct {
+	MaxDevices int `json:"maxDevices"`
+}
 
 func (server *Server) userRoutes(router *gin.Engine) {
 	router.POST("/v1/login", endpoint(func(body loginRequest) (any, error) {
@@ -54,6 +57,9 @@ func (server *Server) userRoutes(router *gin.Engine) {
 	}))
 	users.PATCH("/networks/:networkId", userEndpoint(func(c *gin.Context, body nameRequest) (any, error) {
 		return server.store.RenameNetwork(currentUser(c), c.Param("networkId"), body.Name)
+	}))
+	users.PATCH("/networks/:networkId/limit", userEndpoint(func(c *gin.Context, body limitRequest) (any, error) {
+		return server.store.UpdateNetworkLimit(currentUser(c), c.Param("networkId"), body.MaxDevices)
 	}))
 	users.DELETE("/networks/:networkId", userEndpoint(func(c *gin.Context, _ struct{}) (any, error) {
 		return map[string]bool{"deleted": true}, server.store.DeleteNetwork(currentUser(c), c.Param("networkId"), time.Now())

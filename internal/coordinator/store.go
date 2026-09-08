@@ -23,7 +23,7 @@ const schema = `
 CREATE TABLE metadata (version INTEGER NOT NULL, service_id TEXT NOT NULL, ca BLOB NOT NULL);
 CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash BLOB NOT NULL, disabled INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE user_sessions (hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires INTEGER NOT NULL);
-CREATE TABLE networks (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), name TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE networks (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), name TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, max_devices INTEGER NOT NULL DEFAULT 10);
 CREATE TABLE tokens (hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), network_id TEXT NOT NULL REFERENCES networks(id), expires INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE devices (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), public_key BLOB NOT NULL UNIQUE, name TEXT NOT NULL, certificate BLOB NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, request_id TEXT NOT NULL UNIQUE);
 CREATE TABLE bindings (network_id TEXT NOT NULL REFERENCES networks(id), device_id TEXT NOT NULL REFERENCES devices(id), active INTEGER NOT NULL, PRIMARY KEY(network_id,device_id));
@@ -81,7 +81,7 @@ func Initialize(databasePath, keyPath string, now time.Time) error {
 	if _, err = tx.Exec(schema); err != nil {
 		return err
 	}
-	if _, err = tx.Exec("INSERT INTO metadata VALUES (2, ?, ?)", protocol.KeyID(public), der); err != nil {
+	if _, err = tx.Exec("INSERT INTO metadata VALUES (3, ?, ?)", protocol.KeyID(public), der); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -137,7 +137,7 @@ func (store *Store) validate() error {
 	if err := store.db.QueryRow("SELECT count(*) FROM metadata").Scan(&count); err != nil || count != 1 {
 		return errors.New("p2p.invalid_database")
 	}
-	if err := store.db.QueryRow("SELECT version, service_id, ca FROM metadata").Scan(&version, &store.ServiceID, &ca); err != nil || version != 2 {
+	if err := store.db.QueryRow("SELECT version, service_id, ca FROM metadata").Scan(&version, &store.ServiceID, &ca); err != nil || version != 3 {
 		return errors.New("p2p.unsupported_schema")
 	}
 	certificate, err := x509.ParseCertificate(ca)

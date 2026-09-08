@@ -63,20 +63,23 @@ func (sessions *Sessions) Presence(id string, now time.Time) string {
 	return "online"
 }
 
-func (sessions *Sessions) Begin(sender, pairID string, generation uint64, now time.Time) (Lease, error) {
+// Begin authorizes a connection attempt by network co-membership.
+//
+// The identifier is the TARGET DEVICE ID: trust comes from both devices being
+// bound to a common network (the server vouches for every bound device by
+// signing its certificate), so no per-pair record or invite is required. The
+// lease keeps carrying the identifier as PairID because the transport state
+// machine uses it as the connection id.
+func (sessions *Sessions) Begin(sender, targetDeviceID string, generation uint64, now time.Time) (Lease, error) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
-	pair, err := sessions.store.Pair(sender, pairID)
-	if err != nil || pair.State != "active" {
+	if !protocol.ValidID(targetDeviceID) || targetDeviceID == sender {
+		return Lease{}, errors.New("p2p.invalid_request")
+	}
+	if !sessions.store.sameNetwork(sender, targetDeviceID) {
 		return Lease{}, errors.New("p2p.pair_unauthorized")
 	}
-	if err = sessions.store.authorizePair(pair); err != nil {
-		return Lease{}, err
-	}
-	target := pair.Target
-	if target == sender {
-		target = pair.Initiator
-	}
+	target := targetDeviceID
 	if generation == 0 || generation > 1<<53-1 {
 		return Lease{}, errors.New("p2p.invalid_generation")
 	}
@@ -93,16 +96,29 @@ func (sessions *Sessions) Begin(sender, pairID string, generation uint64, now ti
 			delete(sessions.attempts, id)
 		}
 	}
-	if _, ok := sessions.attempts[pairID]; ok {
+	// One live attempt per device pair, in either direction: an attempt keyed
+	// by the target also blocks the reverse dial over the same link.
+	if _, ok := sessions.attempts[target]; ok {
 		return Lease{}, errors.New("p2p.connection_busy")
+	}
+	for _, current := range sessions.attempts {
+		link := current.lease
+		if (link.FromDeviceID == sender && link.ToDeviceID == target) || (link.FromDeviceID == target && link.ToDeviceID == sender) {
+			return Lease{}, errors.New("p2p.connection_busy")
+		}
 	}
 	device, err := sessions.store.Device(sender)
 	if err != nil {
 		return Lease{}, err
 	}
-	lease := Lease{Version: protocol.Version, ServiceID: sessions.store.ServiceID, UserID: device.UserID, NetworkID: pair.NetworkID, PairID: pair.ID, AttemptID: protocol.NewID(), FromDeviceID: sender, ToDeviceID: target, Generation: generation, Revision: pair.Revision, ExpiresAt: now.Add(time.Minute).Unix(), Permission: "dsh-session"}
+	// The shared network scopes the lease; any common network authorizes.
+	networkID, err := sessions.store.sharedNetworkID(sender, target)
+	if err != nil {
+		return Lease{}, err
+	}
+	lease := Lease{Version: protocol.Version, ServiceID: sessions.store.ServiceID, UserID: device.UserID, NetworkID: networkID, PairID: target, AttemptID: protocol.NewID(), FromDeviceID: sender, ToDeviceID: target, Generation: generation, Revision: 1, ExpiresAt: now.Add(time.Minute).Unix(), Permission: "dsh-session"}
 	sessions.signLease(&lease)
-	sessions.attempts[pairID] = &attempt{lease: lease, sequence: map[string]uint64{}, sdpHash: map[string]string{}, messageIDs: map[string]bool{}}
+	sessions.attempts[target] = &attempt{lease: lease, sequence: map[string]uint64{}, sdpHash: map[string]string{}, messageIDs: map[string]bool{}}
 	return lease, nil
 }
 
@@ -195,12 +211,10 @@ func (sessions *Sessions) authorize(sender, pairID, attemptID string, now time.T
 	if !ok || current.lease.AttemptID != attemptID || current.lease.ExpiresAt <= now.Unix() {
 		return nil, errors.New("p2p.lease_expired")
 	}
-	pair, err := sessions.store.Pair(sender, pairID)
-	if err != nil || pair.State != "active" || pair.Revision != current.lease.Revision {
+	// Authorization is network co-membership: an unbound device loses the
+	// lease immediately, in either direction of the link.
+	if !sessions.store.sameNetwork(sender, pairID) {
 		return nil, errors.New("p2p.pair_revoked")
-	}
-	if err = sessions.store.authorizePair(pair); err != nil {
-		return nil, err
 	}
 	for _, id := range []string{current.lease.FromDeviceID, current.lease.ToDeviceID} {
 		if _, err := sessions.store.Device(id); err != nil {

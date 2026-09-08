@@ -18,8 +18,9 @@ ID 为 32 位小写十六进制随机值；服务公钥指纹为 SHA-256 小写�
 | GET `/v1/user` | — | userId, username |
 | POST `/v1/logout` | `{}` | loggedOut |
 | GET `/v1/networks` | — | 自己的有效网络数组 |
-| POST `/v1/networks` | name | networkId, userId, name |
+| POST `/v1/networks` | name | networkId, userId, name, maxDevices（默认 10） |
 | PATCH `/v1/networks/:networkId` | name | 原 networkId、更新名称 |
+| PATCH `/v1/networks/:networkId/limit` | maxDevices | 网络拥有者把组网设备数上限设为 10/20/30；上限提升持久化，降低不静默踢出已绑定设备 |
 | DELETE `/v1/networks/:networkId` | `{}` | deleted |
 | POST `/v1/networks/:networkId/enrollment-tokens` | `{}` | token, networkId, expiresAt |
 | GET `/v1/devices` | — | 自己的设备数组 |
@@ -39,6 +40,7 @@ ID 为 32 位小写十六进制随机值；服务公钥指纹为 SHA-256 小写�
 | --- | --- | --- |
 | `/v1/identity` | nonce | 服务身份/端点签名说明，nonce 必须为随机 ID |
 | `/v1/enroll` | requestId, token, csr, name | 单次网络绑定凭证 + PEM CSR；返回 deviceId/userId/publicKey/name/certificate |
+| `/v1/network/join` | requestId, networkId, csr, name | 免登录加入网络：凭 networkId 登记本机设备（设备归属网络拥有者）；无需登录，网络达到组网设备数上限时拒绝 |
 | `/v1/enrollment-query` | requestId, publicKey, issuedAt, signature | 60 秒内私钥持有证明，查询丢失的登记结果 |
 | `/v1/recover-certificate` | deviceId, requestId, csr, token | 已到期证书、同密钥及同用户已绑定网络的新凭证 |
 
