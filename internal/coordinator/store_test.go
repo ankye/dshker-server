@@ -29,7 +29,7 @@ func newStore(t *testing.T) (*Store, string, string, time.Time) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	user, err := store.CreateUser("fixture-user", "fixture-password-123")
+	user, err := store.CreateUser("fixture@test.com", "fixture-password-123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func newStore(t *testing.T) (*Store, string, string, time.Time) {
 func fixtureNetwork(t *testing.T, store *Store) Network {
 	t.Helper()
 	var n Network
-	if err := store.db.QueryRow("SELECT n.id,n.user_id,n.name,n.max_devices FROM networks n JOIN users u ON u.id=n.user_id WHERE u.username='fixture-user' AND n.name='fixture-network'").Scan(&n.ID, &n.UserID, &n.Name, &n.MaxDevices); err != nil {
+	if err := store.db.QueryRow("SELECT n.id,n.user_id,n.name,n.max_devices FROM networks n JOIN users u ON u.id=n.user_id WHERE u.email='fixture@test.com' AND n.name='fixture-network'").Scan(&n.ID, &n.UserID, &n.Name, &n.MaxDevices); err != nil {
 		t.Fatal(err)
 	}
 	return n

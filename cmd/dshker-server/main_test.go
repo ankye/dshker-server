@@ -34,7 +34,7 @@ func TestCLIInitCreateDisableAndNoSecretOutput(t *testing.T) {
 	}
 	output.Reset()
 	password := "cli-secret-password-123"
-	if err = run(ctx, []string{"user-add", "--config", path, "--username", "cli-user"}, strings.NewReader(password+"\n"), &output); err != nil {
+	if err = run(ctx, []string{"user-add", "--config", path, "--username", "cli@test.com"}, strings.NewReader(password+"\n"), &output); err != nil {
 		t.Fatal(err)
 	}
 	var user coordinator.User
@@ -46,7 +46,7 @@ func TestCLIInitCreateDisableAndNoSecretOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	session, err := store.Login("cli-user", password, time.Now())
+	session, err := store.Login("cli@test.com", password, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

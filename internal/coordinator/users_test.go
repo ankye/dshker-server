@@ -16,15 +16,15 @@ func TestUserSessionsIsolationRestartLogoutAndDisable(t *testing.T) {
 	if _, err := store.CreateUser("short", "short"); err == nil {
 		t.Fatal("weak password accepted")
 	}
-	if _, err := store.CreateUser("fixture-user", "fixture-password-123"); err == nil {
+	if _, err := store.CreateUser("fixture@test.com", "fixture-password-123"); err == nil {
 		t.Fatal("duplicate user accepted")
 	}
-	for _, username := range []string{"fixture-user", "unknown-user"} {
+	for _, username := range []string{"fixture@test.com", "unknown@test.com"} {
 		if _, err := store.Login(username, "wrong", now); err == nil || err.Error() != "p2p.login_failed" {
 			t.Fatal("credential error differs", err)
 		}
 	}
-	session, err := store.Login("fixture-user", "fixture-password-123", now)
+	session, err := store.Login("fixture@test.com", "fixture-password-123", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestUserSessionsIsolationRestartLogoutAndDisable(t *testing.T) {
 	if _, err = store.AuthenticateUser(session.Token, now); err == nil {
 		t.Fatal("logout did not persist")
 	}
-	session, err = store.Login("fixture-user", "fixture-password-123", now)
+	session, err = store.Login("fixture@test.com", "fixture-password-123", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestUserSessionsIsolationRestartLogoutAndDisable(t *testing.T) {
 	if _, err = store.AuthenticateUser(session.Token, now); err == nil {
 		t.Fatal("disabled session accepted")
 	}
-	if _, err = store.Login("fixture-user", "fixture-password-123", now); err == nil {
+	if _, err = store.Login("fixture@test.com", "fixture-password-123", now); err == nil {
 		t.Fatal("disabled login accepted")
 	}
 }
@@ -67,7 +67,7 @@ func TestUserSessionsIsolationRestartLogoutAndDisable(t *testing.T) {
 func TestPrivateNetworksMembershipAndRevocation(t *testing.T) {
 	store, db, key, now := newStore(t)
 	n := fixtureNetwork(t, store)
-	other, err := store.CreateUser("other-user", "other-password-123")
+	other, err := store.CreateUser("other@test.com", "other-password-123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestPrivateNetworksMembershipAndRevocation(t *testing.T) {
 func TestGinUserAPIRealTLSAndStrictAdmission(t *testing.T) {
 	_, surface, client, _ := networkServer(t)
 	var session UserSession
-	if status := post(t, client, surface.URL+"/v1/login", loginRequest{"fixture-user", "fixture-password-123"}, &session); status != 200 {
+	if status := post(t, client, surface.URL+"/v1/login", loginRequest{"fixture@test.com", "fixture-password-123"}, &session); status != 200 {
 		t.Fatal(status)
 	}
 	call := func(method, path, body, token string) (int, []byte) {

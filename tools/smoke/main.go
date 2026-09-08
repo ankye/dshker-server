@@ -92,7 +92,7 @@ func run(binary, report string) error {
 		return fmt.Errorf("binary init failed: %w", err)
 	}
 	password := randomText()
-	create := exec.CommandContext(ctx, binary, "user-add", "--config", configPath, "--username", "smoke-user")
+	create := exec.CommandContext(ctx, binary, "user-add", "--config", configPath, "--username", "smoke@test.com")
 	create.Stdin = strings.NewReader(password + "\n")
 	if err = create.Run(); err != nil {
 		return fmt.Errorf("binary account creation failed: %w", err)
@@ -159,10 +159,10 @@ func run(binary, report string) error {
 		return nil
 	}
 	var session coordinator.UserSession
-	if err = call("POST", "/v1/login", "", map[string]string{"username": "smoke-user", "password": password}, &session, 200); err != nil {
+	if err = call("POST", "/v1/login", "", map[string]string{"username": "smoke@test.com", "password": password}, &session, 200); err != nil {
 		return err
 	}
-	if session.User.Username != "smoke-user" || session.User.ID == "" || len(session.Token) != 64 {
+	if session.User.Username != "smoke@test.com" || session.User.ID == "" || len(session.Token) != 64 {
 		return fmt.Errorf("login identity readback mismatch")
 	}
 	var network coordinator.Network

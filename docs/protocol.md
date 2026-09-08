@@ -6,7 +6,7 @@
 
 普通 HTTPS 客户端校验服务器 TLS。用户接口使用 `Authorization: Bearer <token>`，设备接口使用签发的 Ed25519 mTLS 证书。两种身份不能互换，不能通过 body.userId、网络 ID 或自报 deviceId 授权。禁止 URL 查询携带凭证，禁止重定向携带旧认证材料。
 
-ID 为 32 位小写十六进制随机值；服务公钥指纹为 SHA-256 小写十六进制。所有时间为 Unix 秒。账号用户名 3–64 位 ASCII 字母/数字/`_.-`，必须以字母或数字开始；密码 12–72 字节。名称 1–256 UTF-8 字节，拒绝首尾空白、换行和 NUL。
+ID 为 32 位小写十六进制随机值；服务公钥指纹为 SHA-256 小写十六进制。所有时间为 Unix 秒。账号用邮箱注册，登录时使用邮箱+密码；密码 12–72 字节。名称 1–256 UTF-8 字节，拒绝首尾空白、换行和 NUL。
 
 ## 用户管理 API
 
@@ -14,7 +14,8 @@ ID 为 32 位小写十六进制随机值；服务公钥指纹为 SHA-256 小写�
 
 | 方法与路径 | body | 结果 |
 | --- | --- | --- |
-| POST `/v1/login` | username, password | user, token, expiresAt |
+| POST `/v1/register` | email, password | userId, username |
+| POST `/v1/login` | email, password | user, token, expiresAt |
 | GET `/v1/user` | — | userId, username |
 | POST `/v1/logout` | `{}` | loggedOut |
 | GET `/v1/networks` | — | 自己的有效网络数组 |

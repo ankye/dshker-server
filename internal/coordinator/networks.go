@@ -46,6 +46,13 @@ func (store *Store) CreateNetwork(userID, name string) (Network, error) {
 	if !validName(name) {
 		return Network{}, errors.New("p2p.invalid_name")
 	}
+	var count int
+	if err := store.db.QueryRow("SELECT count(*) FROM networks WHERE user_id=? AND deleted=0", userID).Scan(&count); err != nil {
+		return Network{}, err
+	}
+	if count >= 2 {
+		return Network{}, errors.New("p2p.network_limit_reached")
+	}
 	network := Network{ID: protocol.NewID(), UserID: userID, Name: name, MaxDevices: DefaultNetworkLimit}
 	result, err := store.db.Exec("INSERT INTO networks(id,user_id,name,max_devices) SELECT ?,id,?,? FROM users WHERE id=? AND disabled=0", network.ID, name, network.MaxDevices, userID)
 	if err != nil {

@@ -20,18 +20,18 @@ type UserSession struct {
 	ExpiresAt int64  `json:"expiresAt"`
 }
 
-var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,63}$`)
+var emailPattern = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
 
-func (store *Store) CreateUser(username, password string) (User, error) {
-	if !usernamePattern.MatchString(username) || len(password) < 12 || len(password) > 72 {
+func (store *Store) CreateUser(email, password string) (User, error) {
+	if !emailPattern.MatchString(email) || len(email) > 254 || len(password) < 12 || len(password) > 72 {
 		return User{}, errors.New("p2p.invalid_user_credentials")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {
 		return User{}, err
 	}
-	user := User{protocol.NewID(), username}
-	if _, err = store.db.Exec("INSERT INTO users(id,username,password_hash) VALUES(?,?,?)", user.ID, username, hash); err != nil {
+	user := User{protocol.NewID(), email}
+	if _, err = store.db.Exec("INSERT INTO users(id,email,password_hash) VALUES(?,?,?)", user.ID, email, hash); err != nil {
 		return User{}, errors.New("p2p.user_conflict")
 	}
 	return user, nil
@@ -44,12 +44,12 @@ func (store *Store) Login(username, password string, now time.Time) (UserSession
 	default:
 		return UserSession{}, errors.New("p2p.rate_limited")
 	}
-	if len(username) > 64 || len(password) > 72 {
+	if len(username) > 254 || len(password) > 72 {
 		return UserSession{}, errors.New("p2p.login_failed")
 	}
 	var user User
 	var hash []byte
-	err := store.db.QueryRow("SELECT id,username,password_hash FROM users WHERE username=? AND disabled=0", username).Scan(&user.ID, &user.Username, &hash)
+	err := store.db.QueryRow("SELECT id,email,password_hash FROM users WHERE email=? AND disabled=0", username).Scan(&user.ID, &user.Username, &hash)
 	if err != nil {
 		hash = store.unknownPassword
 	}
@@ -72,7 +72,7 @@ func (store *Store) AuthenticateUser(token string, now time.Time) (User, error) 
 	if len(token) != 64 {
 		return user, errors.New("p2p.user_unauthorized")
 	}
-	err := store.db.QueryRow("SELECT u.id,u.username FROM users u JOIN user_sessions s ON s.user_id=u.id WHERE s.hash=? AND s.expires>? AND u.disabled=0", digest(token), now.Unix()).Scan(&user.ID, &user.Username)
+	err := store.db.QueryRow("SELECT u.id,u.email FROM users u JOIN user_sessions s ON s.user_id=u.id WHERE s.hash=? AND s.expires>? AND u.disabled=0", digest(token), now.Unix()).Scan(&user.ID, &user.Username)
 	if err != nil {
 		return User{}, errors.New("p2p.user_unauthorized")
 	}

@@ -45,7 +45,7 @@ func run(ctx context.Context, args []string, input io.Reader, output io.Writer) 
 	flags := flag.NewFlagSet("dshker-server "+action, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	path := flags.String("config", "", "显式 JSON 配置路径")
-	username := flags.String("username", "", "创建账号的用户名")
+	username := flags.String("username", "", "创建账号的邮箱")
 	userID := flags.String("user-id", "", "禁用的用户 ID")
 	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
 		return errors.New("p2p.invalid_arguments")

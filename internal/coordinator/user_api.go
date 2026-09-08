@@ -12,6 +12,10 @@ type loginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
+type registerRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
 type nameRequest struct {
 	Name string `json:"name"`
 }
@@ -26,6 +30,9 @@ type limitRequest struct {
 }
 
 func (server *Server) userRoutes(router *gin.Engine) {
+	router.POST("/v1/register", endpoint(func(body registerRequest) (any, error) {
+		return server.store.CreateUser(body.Email, body.Password)
+	}))
 	router.POST("/v1/login", endpoint(func(body loginRequest) (any, error) {
 		return server.store.Login(body.Username, body.Password, time.Now())
 	}))
