@@ -44,6 +44,59 @@ type Device struct {
 	Certificate []byte `json:"certificate"`
 }
 
+// DeviceTelemetry is what a device reports about itself on each heartbeat.
+//
+// Every field is self-declared and descriptive: it is shown in the device list
+// so an operator can tell builds apart, and is never used for authorization.
+// Empty fields mean "unchanged", so a device that reports nothing keeps what it
+// last reported instead of appearing to lose its identity.
+type DeviceTelemetry struct {
+	Version      string `json:"version"`
+	Platform     string `json:"platform"`
+	Architecture string `json:"architecture"`
+}
+
+// Bounds are generous but finite: these strings are displayed, so they must not
+// be able to carry a payload or wreck a table layout.
+func (telemetry DeviceTelemetry) valid() bool {
+	for _, value := range []string{telemetry.Version, telemetry.Platform, telemetry.Architecture} {
+		if len(value) > 64 || value != strings.TrimSpace(value) || strings.ContainsAny(value, "\r\n\x00") {
+			return false
+		}
+	}
+	return true
+}
+
+// DeviceStatus adds the reported build and last-seen time to a device row.
+type DeviceStatus struct {
+	LastSeen     int64  `json:"lastSeen"`
+	Version      string `json:"version"`
+	Platform     string `json:"platform"`
+	Architecture string `json:"architecture"`
+}
+
+// RecordDeviceSeen stores liveness and any newly reported telemetry.
+//
+// Invalid telemetry is dropped rather than rejected: the heartbeat's real job is
+// liveness, and refusing it over a cosmetic field would take a device offline.
+func (store *Store) RecordDeviceSeen(id string, telemetry DeviceTelemetry, now time.Time) error {
+	if !protocol.ValidID(id) {
+		return errors.New("p2p.invalid_request")
+	}
+	if !telemetry.valid() {
+		telemetry = DeviceTelemetry{}
+	}
+	_, err := store.db.Exec(
+		"UPDATE devices SET last_seen=?, version=CASE WHEN ?='' THEN version ELSE ? END, platform=CASE WHEN ?='' THEN platform ELSE ? END, architecture=CASE WHEN ?='' THEN architecture ELSE ? END WHERE id=? AND revoked=0",
+		now.Unix(),
+		telemetry.Version, telemetry.Version,
+		telemetry.Platform, telemetry.Platform,
+		telemetry.Architecture, telemetry.Architecture,
+		id,
+	)
+	return err
+}
+
 func digest(value string) string {
 	encoded := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(encoded[:])

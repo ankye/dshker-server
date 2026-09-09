@@ -29,6 +29,16 @@ type limitRequest struct {
 	MaxDevices int `json:"maxDevices"`
 }
 
+// withPresence fills in live presence, which the store cannot know: liveness is
+// held in memory by Sessions, while the store only knows the persisted last-seen.
+func (server *Server) withPresence(devices []DeviceEntry) []DeviceEntry {
+	now := time.Now()
+	for index := range devices {
+		devices[index].Presence = server.sessions.Presence(devices[index].DeviceID, now)
+	}
+	return devices
+}
+
 func (server *Server) userRoutes(router *gin.Engine) {
 	router.POST("/v1/register", endpoint(func(body registerRequest) (any, error) {
 		return server.store.CreateUser(body.Email, body.Password)
@@ -76,10 +86,13 @@ func (server *Server) userRoutes(router *gin.Engine) {
 		token, err := server.store.IssueEnrollmentToken(currentUser(c), c.Param("networkId"), now)
 		return map[string]any{"token": token, "networkId": c.Param("networkId"), "expiresAt": now.Add(5 * time.Minute).Unix()}, err
 	}))
-	users.GET("/devices", func(c *gin.Context) { value, err := server.store.UserDevices(currentUser(c)); respond(c, value, err) })
+	users.GET("/devices", func(c *gin.Context) {
+		value, err := server.store.UserDevices(currentUser(c))
+		respond(c, server.withPresence(value), err)
+	})
 	users.GET("/networks/:networkId/devices", func(c *gin.Context) {
 		value, err := server.store.NetworkDevices(currentUser(c), c.Param("networkId"))
-		respond(c, value, err)
+		respond(c, server.withPresence(value), err)
 	})
 	users.POST("/networks/:networkId/devices", userEndpoint(func(c *gin.Context, body bindingRequest) (any, error) {
 		return map[string]bool{"bound": true}, server.store.BindDevice(currentUser(c), c.Param("networkId"), body.DeviceID)

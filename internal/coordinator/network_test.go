@@ -216,7 +216,7 @@ func TestPresenceLeaseExpiryAndRevocation(t *testing.T) {
 		t.Fatal("offline accepted")
 	}
 	for _, id := range []string{a.ID, b.ID} {
-		if err := sessions.Heartbeat(id, now); err != nil {
+		if err := sessions.Heartbeat(id, DeviceTelemetry{}, now); err != nil {
 			t.Fatal(err)
 		}
 	}

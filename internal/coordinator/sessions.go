@@ -22,25 +22,53 @@ type attempt struct {
 	messageCount int
 }
 
-// Sessions is ephemeral: no presence, SDP, ICE credential or attempt survives restart.
+// persistedSeenInterval throttles the last-seen write.
+//
+// Presence itself stays in memory and stays exact; this only controls how often
+// the value is durable. Heartbeats arrive far more often than once a minute, so
+// writing every one would turn presence into a continuous disk load for
+// information that is only read when a human opens the device list. One minute
+// of imprecision after a restart is not worth that.
+const persistedSeenInterval = time.Minute
+
+// Sessions keeps presence in memory: no SDP, ICE credential or attempt survives
+// restart. Last-seen is the single exception, persisted so the device list can
+// still say when a device was last reachable after the server restarts.
 type Sessions struct {
-	mu       sync.Mutex
-	store    *Store
-	attempts map[string]*attempt
-	presence map[string]time.Time
+	mu        sync.Mutex
+	store     *Store
+	attempts  map[string]*attempt
+	presence  map[string]time.Time
+	seenSaved map[string]time.Time
 }
 
 func NewSessions(store *Store) *Sessions {
-	return &Sessions{store: store, attempts: make(map[string]*attempt), presence: make(map[string]time.Time)}
+	return &Sessions{store: store, attempts: make(map[string]*attempt), presence: make(map[string]time.Time), seenSaved: make(map[string]time.Time)}
 }
 
-func (sessions *Sessions) Heartbeat(id string, now time.Time) error {
+// Heartbeat records presence and the reported build.
+//
+// Telemetry is whatever the device claims about itself; it is descriptive only
+// and never used for authorization, so a device that reports nothing keeps its
+// previously stored values rather than having them blanked.
+func (sessions *Sessions) Heartbeat(id string, telemetry DeviceTelemetry, now time.Time) error {
 	if _, err := sessions.store.Device(id); err != nil {
 		return err
 	}
 	sessions.mu.Lock()
-	defer sessions.mu.Unlock()
 	sessions.presence[id] = now
+	saved, seen := sessions.seenSaved[id]
+	due := !seen || !saved.Add(persistedSeenInterval).After(now)
+	if due {
+		sessions.seenSaved[id] = now
+	}
+	sessions.mu.Unlock()
+	if !due {
+		return nil
+	}
+	// A failed telemetry write must not fail the heartbeat: presence is already
+	// recorded, and losing a descriptive field is not worth dropping liveness.
+	_ = sessions.store.RecordDeviceSeen(id, telemetry, now)
 	return nil
 }
 
@@ -48,6 +76,9 @@ func (sessions *Sessions) Offline(id string) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
 	delete(sessions.presence, id)
+	// Forget the throttle too, so the next heartbeat persists immediately
+	// instead of being suppressed by a write from the previous session.
+	delete(sessions.seenSaved, id)
 }
 
 func (sessions *Sessions) Presence(id string, now time.Time) string {

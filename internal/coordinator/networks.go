@@ -249,27 +249,40 @@ func (store *Store) UnbindDevice(userID, networkID, deviceID string, now time.Ti
 	return tx.Commit()
 }
 
-func (store *Store) NetworkDevices(userID, networkID string) ([]Device, error) {
+// DeviceEntry is the device-directory row an operator sees.
+//
+// It deliberately omits the certificate: the list exists to identify and manage
+// devices, and a certificate is credential material with no place in a view that
+// is rendered. Presence is filled in by the API layer, which owns liveness.
+type DeviceEntry struct {
+	DeviceID string `json:"deviceId"`
+	UserID   string `json:"userId"`
+	Name     string `json:"name"`
+	Presence string `json:"presence"`
+	DeviceStatus
+}
+
+func (store *Store) NetworkDevices(userID, networkID string) ([]DeviceEntry, error) {
 	if _, err := networkOwned(store.db, userID, networkID); err != nil {
 		return nil, err
 	}
-	return store.listDevices("SELECT d.id,d.user_id,d.public_key,d.name,d.certificate FROM devices d JOIN bindings b ON b.device_id=d.id JOIN networks n ON n.id=b.network_id JOIN users u ON u.id=d.user_id WHERE b.network_id=? AND d.user_id=? AND b.active=1 AND d.revoked=0 AND n.deleted=0 AND u.disabled=0 ORDER BY d.rowid", networkID, userID)
+	return store.listDevices("SELECT d.id,d.user_id,d.name,d.last_seen,d.version,d.platform,d.architecture FROM devices d JOIN bindings b ON b.device_id=d.id JOIN networks n ON n.id=b.network_id JOIN users u ON u.id=d.user_id WHERE b.network_id=? AND d.user_id=? AND b.active=1 AND d.revoked=0 AND n.deleted=0 AND u.disabled=0 ORDER BY d.rowid", networkID, userID)
 }
 
-func (store *Store) UserDevices(userID string) ([]Device, error) {
-	return store.listDevices("SELECT d.id,d.user_id,d.public_key,d.name,d.certificate FROM devices d JOIN users u ON u.id=d.user_id WHERE d.user_id=? AND d.revoked=0 AND u.disabled=0 ORDER BY d.rowid", userID)
+func (store *Store) UserDevices(userID string) ([]DeviceEntry, error) {
+	return store.listDevices("SELECT d.id,d.user_id,d.name,d.last_seen,d.version,d.platform,d.architecture FROM devices d JOIN users u ON u.id=d.user_id WHERE d.user_id=? AND d.revoked=0 AND u.disabled=0 ORDER BY d.rowid", userID)
 }
 
-func (store *Store) listDevices(query string, args ...any) ([]Device, error) {
+func (store *Store) listDevices(query string, args ...any) ([]DeviceEntry, error) {
 	rows, err := store.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Device{}
+	items := []DeviceEntry{}
 	for rows.Next() {
-		var d Device
-		if err = rows.Scan(&d.ID, &d.UserID, &d.PublicKey, &d.Name, &d.Certificate); err != nil {
+		var d DeviceEntry
+		if err = rows.Scan(&d.DeviceID, &d.UserID, &d.Name, &d.LastSeen, &d.Version, &d.Platform, &d.Architecture); err != nil {
 			return nil, err
 		}
 		items = append(items, d)

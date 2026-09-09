@@ -97,7 +97,9 @@ func (server *Server) serveSignals(writer http.ResponseWriter, request *http.Req
 	connection.SetReadLimit(protocol.MaxControlBytes)
 	ctx, cancel := context.WithCancel(request.Context())
 	defer cancel()
-	if err = server.sessions.Heartbeat(device.ID, time.Now()); err != nil {
+	// Opening the signal socket proves liveness but reports nothing about the
+	// build; empty telemetry leaves whatever the device last reported intact.
+	if err = server.sessions.Heartbeat(device.ID, DeviceTelemetry{}, time.Now()); err != nil {
 		return
 	}
 	if err = server.hub.send(device.ID, map[string]any{"type": "ready", "version": protocol.Version, "deviceId": device.ID}); err != nil {
