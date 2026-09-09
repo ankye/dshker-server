@@ -213,6 +213,51 @@ func run(binary, report string) error {
 	if len(devices) != 1 || devices[0].ID != device.ID || devices[0].UserID != session.User.ID {
 		return fmt.Errorf("network membership readback mismatch")
 	}
+	// A second device in the same network must become usable without an invite
+	// code: joining is the authorization. This exercises the real mTLS path, since
+	// adoption is a device-authenticated call.
+	// Each machine enrolls with its own token: a grant is single use, which is
+	// exactly how a second computer joins in practice.
+	var secondGrant struct {
+		Token     string `json:"token"`
+		NetworkID string `json:"networkId"`
+		ExpiresAt int64  `json:"expiresAt"`
+	}
+	if err = call("POST", "/v1/networks/"+network.ID+"/enrollment-tokens", session.Token, struct{}{}, &secondGrant, 200); err != nil {
+		return err
+	}
+	secondKey, secondCert, err := enrollDevice(ctx, call, secondGrant.Token, "runtime-device-2")
+	if err != nil {
+		return err
+	}
+	deviceClient := mutualClient(roots, secondCert, secondKey)
+	defer deviceClient.CloseIdleConnections()
+	var adopted struct {
+		Pairs []coordinator.Pair `json:"pairs"`
+	}
+	if err = deviceCall(ctx, deviceClient, config.HTTPSOrigin, "/v1/adopt-network", &adopted); err != nil {
+		return err
+	}
+	if len(adopted.Pairs) != 1 {
+		return fmt.Errorf("adoption produced %d pairs, want 1", len(adopted.Pairs))
+	}
+	if adopted.Pairs[0].State != "active" {
+		return fmt.Errorf("adopted pair state %q, want active", adopted.Pairs[0].State)
+	}
+	if adopted.Pairs[0].NetworkID != network.ID {
+		return fmt.Errorf("adopted pair is not in the shared network")
+	}
+	events = append(events, event{"POST /v1/adopt-network", 200, adopted.Pairs[0].ID})
+	// Idempotent: startup runs this on every launch.
+	var again struct {
+		Pairs []coordinator.Pair `json:"pairs"`
+	}
+	if err = deviceCall(ctx, deviceClient, config.HTTPSOrigin, "/v1/adopt-network", &again); err != nil {
+		return err
+	}
+	if len(again.Pairs) != 0 {
+		return fmt.Errorf("second adoption duplicated %d pairs", len(again.Pairs))
+	}
 	var result map[string]any
 	if err = call("DELETE", "/v1/networks/"+network.ID, session.Token, struct{}{}, &result, 200); err != nil {
 		return err
@@ -247,6 +292,76 @@ func run(binary, report string) error {
 	}
 	fmt.Println("production process HTTPS and persistence smoke: PASS")
 	return nil
+}
+
+// enrollDevice enrolls one more device with the same network token and returns
+// the material needed to speak as that device over mTLS.
+func enrollDevice(
+	ctx context.Context,
+	call func(method, path, token string, body any, target any, want int) error,
+	enrollmentToken string,
+	name string,
+) (ed25519.PrivateKey, []byte, error) {
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	var device coordinator.Device
+	request := coordinator.Enrollment{
+		RequestID: randomText()[:32],
+		Token:     enrollmentToken,
+		CSR:       string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})),
+		Name:      name,
+	}
+	if err = call("POST", "/v1/enroll", "", request, &device, 200); err != nil {
+		return nil, nil, err
+	}
+	return key, device.Certificate, nil
+}
+
+// mutualClient builds a client that presents a device certificate, which is how
+// the coordinator authenticates device-scoped endpoints.
+func mutualClient(
+	roots *x509.CertPool,
+	certificate []byte,
+	key ed25519.PrivateKey,
+) *http.Client {
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{
+			RootCAs:      roots,
+			Certificates: []tls.Certificate{{Certificate: [][]byte{certificate}, PrivateKey: key}},
+			MinVersion:   tls.VersionTLS13,
+		}},
+	}
+}
+
+// deviceCall posts an empty body to a device-authenticated endpoint.
+func deviceCall(
+	ctx context.Context,
+	client *http.Client,
+	origin string,
+	path string,
+	target any,
+) error {
+	request, err := http.NewRequestWithContext(ctx, "POST", origin+path, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		return fmt.Errorf("POST %s status %d, want 200", path, response.StatusCode)
+	}
+	return json.NewDecoder(response.Body).Decode(target)
 }
 
 func randomText() string {
