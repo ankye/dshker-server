@@ -115,7 +115,7 @@ func (server *Server) routes() *gin.Engine {
 		respond(c, identity, err)
 	})
 	devices.GET("/signals", func(c *gin.Context) { server.serveSignals(c.Writer, c.Request, c.MustGet("device").(Device)) })
-	for _, path := range []string{"/share", "/heartbeat", "/invite", "/pair-action", "/renew-certificate", "/attempt", "/lease", "/end"} {
+	for _, path := range []string{"/share", "/heartbeat", "/invite", "/adopt-network", "/pair-action", "/renew-certificate", "/attempt", "/lease", "/end"} {
 		devices.POST(path, func(c *gin.Context) {
 			value, err := server.deviceOperation(c.Request, c.MustGet("device").(Device), time.Now())
 			respond(c, value, err)
@@ -194,6 +194,14 @@ func (server *Server) deviceOperation(request *http.Request, device Device, now 
 			return nil, err
 		}
 		return server.store.Invite(device.ID, share, now)
+	case "/v1/adopt-network":
+		// No body: the caller cannot choose its peers. They are derived from the
+		// bindings it already holds, so this cannot be aimed at another account.
+		pairs, err := server.store.AdoptNetwork(device.ID, now)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"pairs": pairs}, nil
 	case "/v1/pair-action":
 		body, err := readBody[pairAction](request)
 		if err != nil {

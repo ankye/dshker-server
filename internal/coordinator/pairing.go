@@ -107,6 +107,97 @@ func (store *Store) Invite(sender string, share Share, now time.Time) (Pair, err
 	return pair, nil
 }
 
+// AdoptNetwork pairs a device with every other device already bound to one of
+// its networks, without an invite code or an approval step.
+//
+// The invite flow exists to answer "is this stranger's device really the one I
+// mean?", which a human confirms by comparing a fingerprint. That question does
+// not arise between two devices the same user bound to the same network: joining
+// is itself the authorization, and the identity is carried by a certificate this
+// coordinator issued. Requiring an invite between them made joining a network
+// pointless, since membership granted nothing on its own.
+//
+// The trust boundary is unchanged. Every pair still requires an active binding
+// in a shared network owned by the same user, with neither device revoked and
+// the user enabled, which is exactly what the invite path verifies before it
+// accepts a code. Only the human ceremony is dropped, not a check.
+func (store *Store) AdoptNetwork(deviceID string, now time.Time) ([]Pair, error) {
+	device, err := store.Device(deviceID)
+	if err != nil {
+		return nil, err
+	}
+	// Peers are restricted to networks this device is actually bound to, and to
+	// devices owned by that network's owner, so adoption can never reach across
+	// accounts.
+	rows, err := store.db.Query(
+		"SELECT DISTINCT b.network_id, other.device_id FROM bindings b JOIN networks n ON n.id=b.network_id JOIN users u ON u.id=n.user_id JOIN bindings other ON other.network_id=b.network_id AND other.device_id<>b.device_id AND other.active=1 JOIN devices d ON d.id=other.device_id WHERE b.device_id=? AND b.active=1 AND n.deleted=0 AND u.disabled=0 AND n.user_id=? AND d.user_id=n.user_id AND d.revoked=0 ORDER BY b.network_id, other.device_id",
+		deviceID, device.UserID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	type peer struct{ networkID, deviceID string }
+	peers := []peer{}
+	for rows.Next() {
+		var found peer
+		if err = rows.Scan(&found.networkID, &found.deviceID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		peers = append(peers, found)
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	adopted := []Pair{}
+	for _, found := range peers {
+		pair, err := store.adopt(deviceID, found.deviceID, found.networkID, now)
+		if err != nil {
+			// An existing or in-flight pair is the desired end state, not a
+			// failure, and one unusable peer must not hide the others.
+			continue
+		}
+		adopted = append(adopted, pair)
+	}
+	return adopted, nil
+}
+
+// adopt creates one already-active pair, or reports why it cannot.
+func (store *Store) adopt(initiator, target, networkID string, now time.Time) (Pair, error) {
+	tx, err := store.db.Begin()
+	if err != nil {
+		return Pair{}, err
+	}
+	defer tx.Rollback()
+	owner, err := bindingOwner(tx, networkID, initiator)
+	if err != nil {
+		return Pair{}, err
+	}
+	other, err := bindingOwner(tx, networkID, target)
+	if err != nil || owner != other {
+		return Pair{}, errors.New("p2p.binding_unauthorized")
+	}
+	var count int
+	if err = tx.QueryRow("SELECT count(*) FROM pairs WHERE network_id=? AND ((initiator=? AND target=?) OR (initiator=? AND target=?)) AND (state='active' OR (state IN ('invited','approved') AND expires>?))", networkID, initiator, target, target, initiator, now.Unix()).Scan(&count); err != nil {
+		return Pair{}, err
+	}
+	if count != 0 {
+		return Pair{}, errors.New("p2p.pairing_busy")
+	}
+	// Active immediately: there is no second party left to confirm anything, and
+	// an expiry would strand a pair that membership already justifies. The
+	// timestamp is kept for schema compatibility with invited pairs.
+	pair := Pair{protocol.NewID(), networkID, initiator, target, "active", now.Add(5 * time.Minute).Unix(), 1}
+	if _, err = tx.Exec("INSERT INTO pairs VALUES(?,?,?,?,?,?,?)", pair.ID, pair.NetworkID, pair.Initiator, pair.Target, pair.State, pair.ExpiresAt, pair.Revision); err != nil {
+		return Pair{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Pair{}, err
+	}
+	return pair, nil
+}
+
 func (store *Store) Pairs(deviceID string) ([]Pair, error) {
 	if _, err := store.Device(deviceID); err != nil {
 		return nil, err
