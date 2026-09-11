@@ -6,6 +6,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/gin-gonic/gin v1.12.0
 	github.com/pion/stun/v3 v3.1.7
+	github.com/pion/turn/v5 v5.1.1
 	golang.org/x/crypto v0.54.0
 	modernc.org/sqlite v1.58.0
 )
@@ -32,8 +33,10 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/pion/dtls/v3 v3.1.5 // indirect
+	github.com/pion/dtls/v3 v3.1.8 // indirect
 	github.com/pion/logging v0.2.4 // indirect
+	github.com/pion/randutil v0.1.0 // indirect
+	github.com/pion/stun/v4 v4.0.0 // indirect
 	github.com/pion/transport/v4 v4.1.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect

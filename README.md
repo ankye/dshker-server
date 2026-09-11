@@ -9,7 +9,7 @@
 - 设备绑定：单次限时凭证、CSR 私钥持有证明、设备 mTLS、绑定与解绑。
 - 双向配对：目标分享码、邀请、目标批准、发起端指纹确认；可删除配对。
 - 组网认证：签名信令、明确网络范围、短期租约；删除网络、解绑或禁用账号后拒绝信令与续租。
-- 直连协商：WSS 交换控制消息，自建 UDP STUN；DSH 数据由 DSHKer peer 直接传输，服务器不做业务中继。
+- 直连协商：WSS 交换控制消息，自建 UDP STUN；DSH 数据由 DSHKer peer 端到端加密传输，直连不可用时回退到本服务器的 TURN 不透明中继（只转发密文，服务器无法读取业务流量）。
 
 不依赖 NetHopper、OneIsland、NATS、Redis、MySQL、桌面源码、私有模块或其他项目配置。客户端只通过 [协议](docs/protocol.md) 对接，不 import 服务器源码。
 
@@ -35,8 +35,19 @@ go build -trimpath -o bin/dshker-server ./cmd/dshker-server
 
 1. 构建或取得与你的服务器架构一致的二进制，放入 `/usr/local/bin/dshker-server`。
 2. 创建专用系统用户 `dshker-server`，准备 `/etc/dshker-server` 与归该用户所有的 `/var/lib/dshker-server`（权限 0700）。
-3. 复制 `config.example.json` 到 `/etc/dshker-server/config.json`，逐项填写真实地址和文件路径。样例值不是默认配置；没有字段可省略。
+3. 复制 `config.example.json` 到 `/etc/dshker-server/config.json`，逐项填写真实地址和文件路径。样例值不是默认配置；核心字段不可省略。中继字段 `turnSharedSecret`/`relayPublicIP` 可选：留空即纯 STUN 服务、不下发 TURN 凭据（对旧配置完全兼容）。
 4. 放置 TLS 证书与私钥，确保服务用户可读，私钥仅该用户可读。放行配置的 TCP 8443 和 UDP 3478（可显式修改）。HTTPS/WSS 必须直接终止于服务器，或使用 TCP 透传；不支持由 HTTP 反代终止设备 mTLS 后转发伪造身份头。
+
+### 可选：启用不透明中继（TURN）
+
+在 `config.json` 中设置以下字段并重启服务，UDP 3478 同一 socket 同时应答 STUN Binding 与 TURN 控制：
+
+- `turnSharedSecret`：十六进制字符串，至少 32 字节（`openssl rand -hex 32`），用于按设备派生 24 小时 TURN-REST 凭据（`<unix到期时间戳>:<设备ID>` / HMAC-SHA1），协调器不持久化。
+- `relayPublicIP`：服务器公网 IP（NAT 或云 LB 后部署时必需），作为中继分配地址通告给对端。
+- `turnListen`：可选，默认与 `stunListen` 相同端口。
+- 分配端口由操作系统临时端口范围决定（默认约 49152–65535），不提供固定范围配置。
+
+启用后设备经 `/v1/turn-credentials` 领取自己的中继凭据；直连不可建立时 ICE 走该中继，服务器只转发 DTLS/SCTP 密文。云防火墙须额外放行 UDP 49152–65535（以实际系统临时端口范围为准），并在 `turnSharedSecret` 缺失或太短时报 `p2p.relay_unconfigured`。
 5. 使用服务用户初始化全新状态，再创建账号：
 
 ```sh
@@ -53,7 +64,7 @@ sudo -u dshker-server /usr/local/bin/dshker-server serve --config /etc/dshker-se
 curl --fail https://你的域名:8443/health/https
 ```
 
-这个检查只证明 HTTPS 可达；WSS、UDP STUN 和最终 peer 直连必须分别验证。禁止 UDP 或无法打洞的 NAT 下，不自动转成 TURN、中继、SSH 或公共 STUN。
+这个检查只证明 HTTPS 可达；WSS、UDP STUN 和最终 peer 会话必须分别验证。禁止 UDP 或无法打洞的 NAT 下，会话回退到本服务器的 TURN 不透明中继；不使用公共 STUN/TURN，也不自动转成 SSH。
 
 ## 使用流程
 

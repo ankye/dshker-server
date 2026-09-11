@@ -83,7 +83,7 @@ func check() error {
 			return err
 		}
 		if entry.IsDir() {
-			if entry.Name() == ".git" || entry.Name() == "bin" || entry.Name() == "artifacts" {
+			if entry.Name() == ".git" || entry.Name() == "bin" || entry.Name() == "artifacts" || entry.Name() == "vendor" {
 				return filepath.SkipDir
 			}
 			return nil

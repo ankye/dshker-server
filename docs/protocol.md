@@ -73,7 +73,7 @@ POST `/v1/attempt`：`{pairId,generation}`；POST `/v1/lease` 和 `/v1/end`：`{
 
 代际与序号必须为正整数且不超过 JavaScript 精确整数范围；信令有效期不超过 60 秒，每次 attempt 限制 512 条、每设备输出队列 32 条。签名重放、错序、伪造发送者和失效绑定拒绝。offer 先于 answer，candidate 的 sdpHash 必须绑定已接受的 SDP。
 
-服务端仅发送 ready、attempt、signal、revoked 等控制事件。WSS 掉线不能自动改为业务中继；客户端已建立的直连只允许持续至当前租约到期。
+服务端仅发送 ready、attempt、signal、revoked 等控制事件；另提供 TURN（RFC 8656）不透明中继：只转发对端间端到端加密的报文流（DTLS/SCTP 密文），服务端无法读取或注入业务流量。WSS 掉线不改变已建立会话的中继语义；客户端已建立的直连/中继会话只允许持续至当前租约到期。
 
 ## 跨仓兼容
 

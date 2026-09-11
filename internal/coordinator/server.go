@@ -114,6 +114,23 @@ func (server *Server) routes() *gin.Engine {
 		identity, err := server.pairIdentity(c.MustGet("device").(Device).ID, c.Param("pairId"), time.Now())
 		respond(c, identity, err)
 	})
+	devices.POST("/turn-credentials", func(c *gin.Context) {
+		if server.config.turnRelay().Enabled() {
+			device := c.MustGet("device").(Device)
+			username, password, err := TurnCredentials(server.config.TurnSharedSecret, device.ID)
+			if err != nil {
+				writeError(c.Writer, err)
+				return
+			}
+			writeJSON(c.Writer, map[string]any{
+				"urls":       []string{"turn:" + server.turnURL()},
+				"username":   username,
+				"credential": password,
+			})
+			return
+		}
+		writeError(c.Writer, errors.New("p2p.relay_unconfigured"))
+	})
 	devices.GET("/signals", func(c *gin.Context) { server.serveSignals(c.Writer, c.Request, c.MustGet("device").(Device)) })
 	for _, path := range []string{"/share", "/heartbeat", "/invite", "/adopt-network", "/pair-action", "/renew-certificate", "/attempt", "/lease", "/end"} {
 		devices.POST(path, func(c *gin.Context) {
@@ -334,7 +351,11 @@ func (server *Server) Run(ctx context.Context) error {
 		return err
 	}
 	defer listener.Close()
-	address, err := net.ResolveUDPAddr("udp", server.config.STUNListen)
+	udpListen := server.config.STUNListen
+	if server.config.turnRelay().Enabled() {
+		udpListen = server.config.turnListen()
+	}
+	address, err := net.ResolveUDPAddr("udp", udpListen)
 	if err != nil {
 		return err
 	}
@@ -349,7 +370,14 @@ func (server *Server) Run(ctx context.Context) error {
 	defer server.hub.close()
 	results := make(chan error, 2)
 	go func() { results <- service.Serve(tls.NewListener(listener, tlsConfig)) }()
-	go func() { results <- ServeSTUN(child, udp) }()
+	go func() {
+		relay := server.config.turnRelay()
+		if relay.Enabled() {
+			results <- ServeTURN(child, udp, relay)
+		} else {
+			results <- ServeSTUN(child, udp)
+		}
+	}()
 	select {
 	case err = <-results:
 	case <-ctx.Done():

@@ -7,5 +7,8 @@
   "tlsCertPath": "/etc/dshker-server/tls.crt",
   "tlsKeyPath": "/etc/dshker-server/tls.key",
   "databasePath": "/var/lib/dshker-server/state.db",
-  "identityKeyPath": "/var/lib/dshker-server/identity.key"
+  "identityKeyPath": "/var/lib/dshker-server/identity.key",
+  "turnSharedSecret": "",
+  "turnListen": "0.0.0.0:3478",
+  "relayPublicIP": "203.0.113.9"
 }
