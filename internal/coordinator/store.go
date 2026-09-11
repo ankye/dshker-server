@@ -12,12 +12,21 @@ import (
 	"math/big"
 	"net/url"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/ankye/dshker-server/internal/protocol"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
+
+// restrictedStateFile reports whether a state file is exclusively
+// owner-readable by mode bits. Windows governs access with DACLs, and Go
+// reports 0666 for every file there, so mode-bit checks apply to POSIX
+// platforms only.
+func restrictedStateFile(info os.FileInfo) bool {
+	return runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0
+}
 
 // SchemaVersion is the only layout this build accepts. It is a single constant
 // because the store refuses any other value outright: there is no migration
@@ -95,7 +104,7 @@ func Initialize(databasePath, keyPath string, now time.Time) error {
 func OpenStore(databasePath, keyPath string) (*Store, error) {
 	for _, path := range []string{databasePath, keyPath} {
 		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		if err != nil || !info.Mode().IsRegular() || restrictedStateFile(info) {
 			return nil, errors.New("p2p.state_unavailable_or_insecure")
 		}
 	}
