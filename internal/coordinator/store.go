@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/ankye/dshker-server/internal/protocol"
@@ -169,7 +170,14 @@ func (store *Store) validate() error {
 func (store *Store) Close() error { return store.db.Close() }
 
 func openDB(path string) (*sql.DB, error) {
-	address := url.URL{Scheme: "file", Path: path}
+	// SQLite parses file: URIs. A Windows drive letter would be read as the
+	// URI authority ("file:D:/..."), so drive paths are anchored to the
+	// canonical file:///D:/... form.
+	slash := strings.ReplaceAll(path, "\\", "/")
+	if runtime.GOOS == "windows" && !strings.HasPrefix(slash, "/") {
+		slash = "/" + slash
+	}
+	address := url.URL{Scheme: "file", Path: slash}
 	query := url.Values{"mode": {"rw"}, "_pragma": {"foreign_keys(1)", "busy_timeout(5000)"}}
 	address.RawQuery = query.Encode()
 	db, err := sql.Open("sqlite", address.String())
