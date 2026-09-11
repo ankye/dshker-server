@@ -34,6 +34,12 @@ type Config struct {
 	// RelayPublicIP is the address allocations advertise to peers; required
 	// when the relay is enabled (the box may sit behind a NAT or a cloud LB).
 	RelayPublicIP string `json:"relayPublicIP"`
+	// RelayPortMin and RelayPortMax, when both set and Min <= Max, pin relayed
+	// allocation sockets to a fixed UDP range so a cloud firewall can admit
+	// the relay with one narrow rule instead of the OS ephemeral range. When
+	// unset the relay binds system ephemeral ports (default behaviour).
+	RelayPortMin int `json:"relayPortMin"`
+	RelayPortMax int `json:"relayPortMax"`
 }
 
 func ReadConfig(path string) (Config, error) {
@@ -111,6 +117,12 @@ func (config Config) Validate() error {
 		if config.RelayPublicIP == "" || net.ParseIP(config.RelayPublicIP) == nil {
 			return errors.New("p2p.invalid_relay_public_ip")
 		}
+		if config.RelayPortMax != 0 || config.RelayPortMin != 0 {
+			switch {
+			case config.RelayPortMin < 1 || config.RelayPortMax > 65535 || config.RelayPortMin > config.RelayPortMax:
+				return errors.New("p2p.invalid_relay_port_range")
+			}
+		}
 	}
 	return nil
 }
@@ -126,7 +138,7 @@ func (config Config) turnListen() string {
 
 // turnRelay resolves the relay wiring.
 func (config Config) turnRelay() TurnRelay {
-	relay := TurnRelay{SharedSecret: config.TurnSharedSecret, ControlAddress: config.turnListen()}
+	relay := TurnRelay{SharedSecret: config.TurnSharedSecret, ControlAddress: config.turnListen(), MinPort: config.RelayPortMin, MaxPort: config.RelayPortMax}
 	if relay.Enabled() {
 		relay.PublicIP = net.ParseIP(config.RelayPublicIP)
 	}

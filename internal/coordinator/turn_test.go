@@ -42,6 +42,15 @@ func TestTurnCredentialsShapeAndHandler(t *testing.T) {
 // secret; peer and allocation ports come from a dedicated local range.
 func startTestRelay(t *testing.T, sharedSecret string) (controlAddr string, relay TurnRelay) {
 	t.Helper()
+	return startTestRelayPublicIP(t, sharedSecret, net.IPv4(127, 0, 0, 1))
+}
+
+// startTestRelayPublicIP launches the relay configured to advertise relayIP as
+// the relayed address. relayIP may be an address this host does not own (e.g. a
+// cloud gateway facing IP behind NAT): the generator must still bind on a local
+// interface and only use relayIP in the allocation response.
+func startTestRelayPublicIP(t *testing.T, sharedSecret string, relayIP net.IP) (controlAddr string, relay TurnRelay) {
+	t.Helper()
 	connection, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatalf("listen control: %v", err)
@@ -49,7 +58,7 @@ func startTestRelay(t *testing.T, sharedSecret string) (controlAddr string, rela
 	relay = TurnRelay{
 		SharedSecret:   sharedSecret,
 		ControlAddress: connection.LocalAddr().String(),
-		PublicIP:       net.IPv4(127, 0, 0, 1),
+		PublicIP:       relayIP,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -146,6 +155,57 @@ func TestServeTURNRelaysDatagrams(t *testing.T) {
 	}
 	if string(buffer[:size]) != "pong-b-to-a" {
 		t.Fatalf("B->A payload mangled: %q", buffer[:size])
+	}
+}
+
+func TestServeTURNAdvertisesPublicRelayBehindNAT(t *testing.T) {
+	// The deployed coordinator sits behind a cloud gateway: relayPublicIP is a
+	// public address that exists only on the gateway, not on any local NIC.
+	// The generator must bind locally (0.0.0.0) and still advertise the public
+	// IP in the allocation response, or every Allocate fails with 508.
+	controlAddr, _ := startTestRelayPublicIP(t, testRelaySecret, net.IPv4(8, 8, 8, 8))
+	usernameA, passwordA, err := TurnCredentials(testRelaySecret, "device-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientA, allocationA := allocateOverRelay(t, controlAddr, usernameA, passwordA)
+	relayedA := allocationA.LocalAddr().(*net.UDPAddr)
+	if !relayedA.IP.Equal(net.IPv4(8, 8, 8, 8)) {
+		t.Fatalf("relayed address = %v, want 8.8.8.8", relayedA.IP)
+	}
+	// Datagram flow over the loopback relay is covered by
+	// TestServeTURNRelaysDatagrams; here the relayed address is a public IP the
+	// host does not own, so a local client cannot route to it — that is exactly
+	// the production shape, where every client sits on the public internet and
+	// the gateway forwards the port to this host's internal NIC.
+	_ = clientA
+	_ = relayedA
+}
+
+func TestServeTURNPortRangePinsAllocations(t *testing.T) {
+	// The cloud firewall admits a narrow UDP range; allocations must land in
+	// it, otherwise the relayed datagrams never reach the box.
+	connection, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatalf("listen control: %v", err)
+	}
+	relay := TurnRelay{SharedSecret: testRelaySecret, ControlAddress: connection.LocalAddr().String(), PublicIP: net.IPv4(127, 0, 0, 1), MinPort: 8000, MaxPort: 8999}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- ServeTURN(ctx, connection, relay) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	usernameA, passwordA, err := TurnCredentials(testRelaySecret, "device-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		client, allocation := allocateOverRelay(t, relay.ControlAddress, usernameA, passwordA)
+		relayed := allocation.LocalAddr().(*net.UDPAddr)
+		if relayed.Port < 8000 || relayed.Port > 8999 {
+			t.Fatalf("allocation %d port = %d, want inside [8000,8999]", i, relayed.Port)
+		}
+		_ = client
 	}
 }
 

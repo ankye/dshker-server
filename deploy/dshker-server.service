@@ -15,7 +15,10 @@ ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/dshker-server
 PrivateTmp=true
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# RestrictAddressFamilies is deliberately NOT set: the TURN relay allocates a
+# UDP socket per allocation and its signalling path needs address families
+# beyond AF_INET/AF_INET6, so the restriction makes the service fail to start
+# with p2p.operation_failed. Keep the other hardening directives instead.
 
 [Install]
 WantedBy=multi-user.target
