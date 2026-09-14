@@ -51,12 +51,23 @@ type Device struct {
 // Empty fields mean "unchanged", so a device that reports nothing keeps what it
 // last reported instead of appearing to lose its identity.
 // heartbeatRequest is the heartbeat body: the device's own report plus the account
-// it is signed in to. The account is optional — a machine signed in nowhere
-// reports no presence and reads as offline — and it is never part of telemetry.
+// it is signed in to. The fields are flat on purpose — the protocol's strict
+// decoder reads the struct's own fields and does not flatten an embedded one, so
+// embedding telemetry here would reject every heartbeat as missing a field. The
+// account is optional: a machine signed in nowhere reports no presence and reads
+// as offline.
 type heartbeatRequest struct {
-	DeviceTelemetry
-	UserID string `json:"userId"`
+	Version      string `json:"version"`
+	Platform     string `json:"platform"`
+	Architecture string `json:"architecture"`
+	UserID       string `json:"userId"`
 }
+
+// telemetry is the build description one heartbeat carried.
+func (request heartbeatRequest) telemetry() DeviceTelemetry {
+	return DeviceTelemetry{Version: request.Version, Platform: request.Platform, Architecture: request.Architecture}
+}
+
 type DeviceTelemetry struct {
 	Version      string `json:"version"`
 	Platform     string `json:"platform"`

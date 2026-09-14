@@ -198,7 +198,7 @@ func (server *Server) deviceOperation(request *http.Request, device Device, now 
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"deviceId": device.ID, "at": now.Unix()}, server.sessions.Heartbeat(device.ID, telemetry.UserID, telemetry.DeviceTelemetry, now)
+		return map[string]any{"deviceId": device.ID, "at": now.Unix()}, server.sessions.Heartbeat(device.ID, telemetry.UserID, telemetry.telemetry(), now)
 	case "/v1/invite":
 		body, err := readBody[inviteRequest](request)
 		if err != nil {
