@@ -180,9 +180,31 @@ func (store *Store) DeleteNetwork(userID, id string, now time.Time) error {
 	return tx.Commit()
 }
 
+// bindingOwner reports the account a network-bound device reports to.
+//
+// Ownership is the link between the device and the account, not a single column
+// on the device: one machine may be enrolled under several accounts, and it acts
+// as whichever one it is currently signed in to. The binding must therefore name
+// a device that is linked to the network's owner.
+// deviceLinkedTo reports whether a machine reports to this account.
+//
+// A device id belongs to the machine and may be linked to several accounts, so
+// every authorization asks about the link rather than about one owner column.
+func deviceLinkedTo(db queryer, deviceID, userID string) (bool, error) {
+	var found int
+	err := db.QueryRow("SELECT 1 FROM device_users du JOIN users u ON u.id=du.user_id WHERE du.device_id=? AND du.user_id=? AND u.disabled=0", deviceID, userID).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func bindingOwner(db queryer, networkID, deviceID string) (string, error) {
 	var userID string
-	err := db.QueryRow("SELECT n.user_id FROM bindings b JOIN networks n ON n.id=b.network_id JOIN devices d ON d.id=b.device_id JOIN users u ON u.id=n.user_id WHERE b.network_id=? AND b.device_id=? AND b.active=1 AND n.deleted=0 AND d.revoked=0 AND u.disabled=0 AND d.user_id=n.user_id", networkID, deviceID).Scan(&userID)
+	err := db.QueryRow("SELECT n.user_id FROM bindings b JOIN networks n ON n.id=b.network_id JOIN devices d ON d.id=b.device_id JOIN users u ON u.id=n.user_id WHERE b.network_id=? AND b.device_id=? AND b.active=1 AND n.deleted=0 AND d.revoked=0 AND u.disabled=0 AND EXISTS(SELECT 1 FROM device_users du WHERE du.device_id=d.id AND du.user_id=n.user_id)", networkID, deviceID).Scan(&userID)
 	if err != nil {
 		return "", errors.New("p2p.binding_unauthorized")
 	}
@@ -266,11 +288,11 @@ func (store *Store) NetworkDevices(userID, networkID string) ([]DeviceEntry, err
 	if _, err := networkOwned(store.db, userID, networkID); err != nil {
 		return nil, err
 	}
-	return store.listDevices("SELECT d.id,d.user_id,d.name,d.last_seen,d.version,d.platform,d.architecture FROM devices d JOIN bindings b ON b.device_id=d.id JOIN networks n ON n.id=b.network_id JOIN users u ON u.id=d.user_id WHERE b.network_id=? AND d.user_id=? AND b.active=1 AND d.revoked=0 AND n.deleted=0 AND u.disabled=0 ORDER BY d.rowid", networkID, userID)
+	return store.listDevices("SELECT d.id,d.user_id,d.name,d.last_seen,d.version,d.platform,d.architecture FROM devices d JOIN bindings b ON b.device_id=d.id JOIN networks n ON n.id=b.network_id JOIN users u ON u.id=d.user_id WHERE b.network_id=? AND EXISTS(SELECT 1 FROM device_users du WHERE du.device_id=d.id AND du.user_id=?) AND b.active=1 AND d.revoked=0 AND n.deleted=0 AND u.disabled=0 ORDER BY d.rowid", networkID, userID)
 }
 
 func (store *Store) UserDevices(userID string) ([]DeviceEntry, error) {
-	return store.listDevices("SELECT d.id,d.user_id,d.name,d.last_seen,d.version,d.platform,d.architecture FROM devices d JOIN users u ON u.id=d.user_id WHERE d.user_id=? AND d.revoked=0 AND u.disabled=0 ORDER BY d.rowid", userID)
+	return store.listDevices("SELECT d.id,d.user_id,d.name,d.last_seen,d.version,d.platform,d.architecture FROM devices d JOIN device_users du ON du.device_id=d.id JOIN users u ON u.id=du.user_id WHERE du.user_id=? AND d.revoked=0 AND u.disabled=0 ORDER BY d.rowid", userID)
 }
 
 func (store *Store) listDevices(query string, args ...any) ([]DeviceEntry, error) {

@@ -114,7 +114,9 @@ func (store *Store) replaceCertificate(device Device, requestID, token string, n
 		if err != nil {
 			return nil, err
 		}
-		if userID != device.UserID {
+		if linked, err := deviceLinkedTo(tx, device.ID, userID); err != nil {
+			return nil, err
+		} else if !linked {
 			return nil, errors.New("p2p.identity_mismatch")
 		}
 		if _, err = bindingOwner(tx, networkID, device.ID); err != nil {

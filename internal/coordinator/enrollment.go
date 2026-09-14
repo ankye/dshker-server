@@ -134,7 +134,12 @@ func (store *Store) Enroll(request Enrollment, now time.Time) (Device, error) {
 	if err != nil {
 		return device, err
 	}
-	device = Device{ID: protocol.NewID(), PublicKey: public, Name: request.Name}
+	// The device id is derived from the machine's key, like a hardware address, so
+	// this machine is the same device every time it enrolls — under this account or
+	// any other. Minting a fresh id here made every later enrollment a different
+	// device and left every pair, pin and catalog row pointing at an identity that
+	// no longer existed.
+	device = Device{ID: protocol.KeyID(public), PublicKey: public, Name: request.Name}
 	device.Certificate, err = store.issueCertificate(device.ID, public, now)
 	if err != nil {
 		return Device{}, err
@@ -157,11 +162,30 @@ func (store *Store) Enroll(request Enrollment, now time.Time) (Device, error) {
 	if err = consumeToken(tx, request.Token, now); err != nil {
 		return Device{}, err
 	}
-	_, err = tx.Exec("INSERT INTO devices(id,user_id,public_key,name,certificate,request_id) VALUES (?,?,?,?,?,?)", device.ID, userID, []byte(public), device.Name, device.Certificate, request.RequestID)
-	if err != nil {
-		return Device{}, errors.New("p2p.device_already_enrolled")
+	// A machine that is already enrolled keeps its row and its certificate; this
+	// enrollment only adds the account it is now reporting to, plus the network
+	// binding that comes with that account's token.
+	var known string
+	switch err = tx.QueryRow("SELECT id FROM devices WHERE public_key=?", []byte(public)).Scan(&known); {
+	case errors.Is(err, sql.ErrNoRows):
+		if _, err = tx.Exec("INSERT INTO devices(id,user_id,public_key,name,certificate,request_id) VALUES (?,?,?,?,?,?)", device.ID, userID, []byte(public), device.Name, device.Certificate, request.RequestID); err != nil {
+			return Device{}, errors.New("p2p.device_already_enrolled")
+		}
+	case err != nil:
+		return Device{}, err
+	default:
+		device.ID = known
+		if _, err = tx.Exec("UPDATE devices SET name=?, request_id=? WHERE id=?", device.Name, request.RequestID, device.ID); err != nil {
+			return Device{}, err
+		}
+		if err = tx.QueryRow("SELECT certificate FROM devices WHERE id=?", device.ID).Scan(&device.Certificate); err != nil {
+			return Device{}, err
+		}
 	}
-	if _, err = tx.Exec("INSERT INTO bindings VALUES(?,?,1)", networkID, device.ID); err != nil {
+	if _, err = tx.Exec("INSERT INTO device_users(device_id,user_id) VALUES(?,?) ON CONFLICT(device_id,user_id) DO NOTHING", device.ID, userID); err != nil {
+		return Device{}, err
+	}
+	if _, err = tx.Exec("INSERT INTO bindings(network_id,device_id,active) VALUES(?,?,1) ON CONFLICT(network_id,device_id) DO UPDATE SET active=1", networkID, device.ID); err != nil {
 		return Device{}, err
 	}
 	if _, err = tx.Exec("INSERT INTO audit(event,subject,at) VALUES ('enrolled',?,?)", device.ID, now.Unix()); err != nil {
@@ -187,7 +211,7 @@ func (store *Store) JoinNetwork(request NetworkJoin, now time.Time) (Device, err
 	if err != nil {
 		return device, err
 	}
-	device = Device{ID: protocol.NewID(), PublicKey: public, Name: request.Name}
+	device = Device{ID: protocol.KeyID(public), PublicKey: public, Name: request.Name}
 	device.Certificate, err = store.issueCertificate(device.ID, public, now)
 	if err != nil {
 		return Device{}, err
@@ -197,7 +221,8 @@ func (store *Store) JoinNetwork(request NetworkJoin, now time.Time) (Device, err
 		return Device{}, err
 	}
 	defer tx.Rollback()
-	// The network must exist and be live; its owner owns the joining device.
+	// The network must exist and be live; its owner is the account the joining
+	// device reports to.
 	var ownerUserID string
 	if err = tx.QueryRow("SELECT user_id FROM networks WHERE id=? AND deleted=0", request.NetworkID).Scan(&ownerUserID); err != nil {
 		return Device{}, errors.New("p2p.network_unauthorized")
@@ -212,11 +237,29 @@ func (store *Store) JoinNetwork(request NetworkJoin, now time.Time) (Device, err
 		return Device{}, errors.New("p2p.network_full")
 	}
 	device.UserID = ownerUserID
-	_, err = tx.Exec("INSERT INTO devices(id,user_id,public_key,name,certificate,request_id) VALUES (?,?,?,?,?,?)", device.ID, ownerUserID, []byte(public), device.Name, device.Certificate, request.RequestID)
-	if err != nil {
-		return Device{}, errors.New("p2p.device_already_enrolled")
+	// Same rule as Enroll: the id comes from the key, so a machine that is already
+	// known keeps its device and its certificate and only gains this account.
+	var known string
+	switch err = tx.QueryRow("SELECT id FROM devices WHERE public_key=?", []byte(public)).Scan(&known); {
+	case errors.Is(err, sql.ErrNoRows):
+		if _, err = tx.Exec("INSERT INTO devices(id,user_id,public_key,name,certificate,request_id) VALUES (?,?,?,?,?,?)", device.ID, ownerUserID, []byte(public), device.Name, device.Certificate, request.RequestID); err != nil {
+			return Device{}, errors.New("p2p.device_already_enrolled")
+		}
+	case err != nil:
+		return Device{}, err
+	default:
+		device.ID = known
+		if _, err = tx.Exec("UPDATE devices SET name=?, request_id=? WHERE id=?", device.Name, request.RequestID, device.ID); err != nil {
+			return Device{}, err
+		}
+		if err = tx.QueryRow("SELECT certificate FROM devices WHERE id=?", device.ID).Scan(&device.Certificate); err != nil {
+			return Device{}, err
+		}
 	}
-	if _, err = tx.Exec("INSERT INTO bindings VALUES(?,?,1)", request.NetworkID, device.ID); err != nil {
+	if _, err = tx.Exec("INSERT INTO device_users(device_id,user_id) VALUES(?,?) ON CONFLICT(device_id,user_id) DO NOTHING", device.ID, ownerUserID); err != nil {
+		return Device{}, err
+	}
+	if _, err = tx.Exec("INSERT INTO bindings(network_id,device_id,active) VALUES(?,?,1) ON CONFLICT(network_id,device_id) DO UPDATE SET active=1", request.NetworkID, device.ID); err != nil {
 		return Device{}, err
 	}
 	if _, err = tx.Exec("INSERT INTO audit(event,subject,at) VALUES ('network-join',?,?)", device.ID, now.Unix()); err != nil {
