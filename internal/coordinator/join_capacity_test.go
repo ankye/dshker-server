@@ -35,7 +35,7 @@ func TestLoginFreeJoinEnrollsIntoNetwork(t *testing.T) {
 func TestLoginFreeJoinRejectsUnknownNetwork(t *testing.T) {
 	store, _, _, now := newStore(t)
 	_, csr := makeCSR(t)
-	missing := "00000000000000000000000000000000"
+	missing := "000000000000"
 	request := NetworkJoin{RequestID: protocol.NewID(), NetworkID: missing, CSR: csr, Name: "电脑"}
 	if _, err := store.JoinNetwork(request, now); err == nil || err.Error() != "p2p.network_unauthorized" {
 		t.Fatalf("unknown network join not rejected: %v", err)

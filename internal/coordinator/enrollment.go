@@ -103,7 +103,14 @@ func digest(value string) string {
 }
 
 func (store *Store) IssueEnrollmentToken(userID, networkID string, now time.Time) (string, error) {
-	token := protocol.NewID() + protocol.NewID()
+	// A bearer secret, not an identifier: its length is its own (32 bytes hex),
+	// so shortening the protocol's ids cannot shrink it. Building it out of ids
+	// made the token 24 characters the moment ids became twelve, and every
+	// enrollment then failed as malformed.
+	token, err := protocol.NewSecret()
+	if err != nil {
+		return "", err
+	}
 	tx, err := store.db.Begin()
 	if err != nil {
 		return "", err

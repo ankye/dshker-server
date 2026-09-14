@@ -12,10 +12,17 @@ import (
 	"time"
 )
 
-var identifier = regexp.MustCompile(`^[a-f0-9]{32}$`)
+// identifier is the shape of every id this protocol carries: twelve lowercase
+// hexadecimal characters, the same length and alphabet as a hardware address, so
+// a device id can be read aloud, typed and compared by a person. A device id is
+// derived from its public key (see KeyID) and therefore stays the same for the
+// life of the machine, across accounts, networks and enrollments.
+var identifier = regexp.MustCompile(`^[a-f0-9]{12}$`)
 
+// NewID mints a fresh twelve-character id for things that are not derived from a
+// key: networks, requests, attempts and message ids.
 func NewID() string {
-	value := make([]byte, 16)
+	value := make([]byte, 6)
 	if _, err := rand.Read(value); err != nil {
 		panic(err) // No identity is safe without OS entropy.
 	}
@@ -24,9 +31,21 @@ func NewID() string {
 
 func ValidID(value string) bool { return identifier.MatchString(value) }
 
+// NewSecret mints a bearer secret: 32 bytes of entropy, hex encoded. Secrets have
+// their own length and are never derived from identifiers, so changing an
+// identifier's shape cannot silently shrink a token.
+func NewSecret() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value), nil
+}
+
+// KeyID derives the stable twelve-character id of a public key.
 func KeyID(public ed25519.PublicKey) string {
 	digest := sha256.Sum256(public)
-	return hex.EncodeToString(digest[:])
+	return hex.EncodeToString(digest[:6])
 }
 
 type Signal struct {

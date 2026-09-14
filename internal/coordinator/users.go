@@ -56,7 +56,15 @@ func (store *Store) Login(username, password string, now time.Time) (UserSession
 	if bcrypt.CompareHashAndPassword(hash, []byte(password)) != nil || err != nil {
 		return UserSession{}, errors.New("p2p.login_failed")
 	}
-	session := UserSession{user, protocol.NewID() + protocol.NewID(), now.Add(24 * time.Hour).Unix()}
+	// A session token is a bearer secret with its own length, never something
+	// assembled from identifiers: building it from two ids silently shrank it to
+	// 24 characters when ids became twelve, and every authenticated request after
+	// a restart was then refused as unauthorized.
+	token, err := protocol.NewSecret()
+	if err != nil {
+		return UserSession{}, err
+	}
+	session := UserSession{user, token, now.Add(24 * time.Hour).Unix()}
 	result, err := store.db.Exec("INSERT INTO user_sessions(hash,user_id,expires) SELECT ?,id,? FROM users WHERE id=? AND disabled=0", digest(session.Token), session.ExpiresAt, user.ID)
 	if err != nil {
 		return UserSession{}, err
