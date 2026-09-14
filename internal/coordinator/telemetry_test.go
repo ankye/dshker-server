@@ -18,7 +18,7 @@ func TestHeartbeatRecordsTelemetryAndLastSeen(t *testing.T) {
 	sessions := NewSessions(store)
 
 	report := DeviceTelemetry{Version: "1.4.2", Platform: "darwin", Architecture: "arm64"}
-	if err := sessions.Heartbeat(device.ID, report, now); err != nil {
+	if err := sessions.Heartbeat(device.ID, device.UserID, report, now); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := store.NetworkDevices(network.UserID, network.ID)
@@ -50,11 +50,11 @@ func TestHeartbeatWithoutTelemetryKeepsStoredBuild(t *testing.T) {
 	device, _, _ := joinEnroll(t, store, network.ID, now)
 	sessions := NewSessions(store)
 
-	if err := sessions.Heartbeat(device.ID, DeviceTelemetry{Version: "2.0.0", Platform: "linux", Architecture: "amd64"}, now); err != nil {
+	if err := sessions.Heartbeat(device.ID, device.UserID, DeviceTelemetry{Version: "2.0.0", Platform: "linux", Architecture: "amd64"}, now); err != nil {
 		t.Fatal(err)
 	}
 	later := now.Add(2 * time.Minute)
-	if err := sessions.Heartbeat(device.ID, DeviceTelemetry{}, later); err != nil {
+	if err := sessions.Heartbeat(device.ID, device.UserID, DeviceTelemetry{}, later); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := store.NetworkDevices(network.UserID, network.ID)
@@ -77,12 +77,12 @@ func TestLastSeenPersistenceIsThrottled(t *testing.T) {
 	device, _, _ := joinEnroll(t, store, network.ID, now)
 	sessions := NewSessions(store)
 
-	if err := sessions.Heartbeat(device.ID, DeviceTelemetry{}, now); err != nil {
+	if err := sessions.Heartbeat(device.ID, device.UserID, DeviceTelemetry{}, now); err != nil {
 		t.Fatal(err)
 	}
 	// Well inside the throttle window: durable last-seen must not move.
 	soon := now.Add(10 * time.Second)
-	if err := sessions.Heartbeat(device.ID, DeviceTelemetry{}, soon); err != nil {
+	if err := sessions.Heartbeat(device.ID, device.UserID, DeviceTelemetry{}, soon); err != nil {
 		t.Fatal(err)
 	}
 	entries, _ := store.NetworkDevices(network.UserID, network.ID)
@@ -90,12 +90,12 @@ func TestLastSeenPersistenceIsThrottled(t *testing.T) {
 		t.Fatalf("throttled write still hit the database: %d", entries[0].LastSeen)
 	}
 	// Presence itself is unthrottled and still exact.
-	if sessions.Presence(device.ID, soon) != "online" {
+	if sessions.Presence(device.ID, device.UserID, soon) != "online" {
 		t.Fatal("throttling the write also delayed presence")
 	}
 	// Past the window the value becomes durable again.
 	past := now.Add(persistedSeenInterval + time.Second)
-	if err := sessions.Heartbeat(device.ID, DeviceTelemetry{}, past); err != nil {
+	if err := sessions.Heartbeat(device.ID, device.UserID, DeviceTelemetry{}, past); err != nil {
 		t.Fatal(err)
 	}
 	entries, _ = store.NetworkDevices(network.UserID, network.ID)
@@ -117,7 +117,7 @@ func TestTelemetryRejectsUnusableStrings(t *testing.T) {
 		{Architecture: " untrimmed"},
 		{Version: "null\x00byte"},
 	} {
-		if err := sessions.Heartbeat(device.ID, bad, now); err != nil {
+		if err := sessions.Heartbeat(device.ID, device.UserID, bad, now); err != nil {
 			t.Fatalf("heartbeat must survive a cosmetic refusal: %v", err)
 		}
 		entries, _ := store.NetworkDevices(network.UserID, network.ID)
@@ -126,7 +126,7 @@ func TestTelemetryRejectsUnusableStrings(t *testing.T) {
 		}
 	}
 	// Liveness is still recorded even when the report is dropped.
-	if sessions.Presence(device.ID, now) != "online" {
+	if sessions.Presence(device.ID, device.UserID, now) != "online" {
 		t.Fatal("a rejected report took the device offline")
 	}
 }
@@ -135,7 +135,7 @@ func TestTelemetryRejectsUnusableStrings(t *testing.T) {
 func TestHeartbeatRejectsUnknownDevice(t *testing.T) {
 	store, _, _, now := newStore(t)
 	sessions := NewSessions(store)
-	if err := sessions.Heartbeat(protocol.NewID(), DeviceTelemetry{}, now); err == nil {
+	if err := sessions.Heartbeat(protocol.NewID(), "", DeviceTelemetry{}, now); err == nil {
 		t.Fatal("unknown device accepted a heartbeat")
 	}
 }

@@ -190,13 +190,15 @@ func (server *Server) deviceOperation(request *http.Request, device Device, now 
 		}
 		return server.store.Share(device.ID, body.NetworkID, now)
 	case "/v1/heartbeat":
-		// The body is the device's own report about its build. It stays optional:
-		// an older client that sends {} keeps working and simply reports nothing.
-		telemetry, err := readBody[DeviceTelemetry](request)
+		// The body is the device's own report about its build, plus the account it is
+		// signed in to. Both stay optional: a client that sends {} keeps working and
+		// simply reports nothing, and a machine that is signed in nowhere records no
+		// presence and reads as offline.
+		telemetry, err := readBody[heartbeatRequest](request)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"deviceId": device.ID, "at": now.Unix()}, server.sessions.Heartbeat(device.ID, telemetry, now)
+		return map[string]any{"deviceId": device.ID, "at": now.Unix()}, server.sessions.Heartbeat(device.ID, telemetry.UserID, telemetry.DeviceTelemetry, now)
 	case "/v1/invite":
 		body, err := readBody[inviteRequest](request)
 		if err != nil {

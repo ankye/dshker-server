@@ -47,8 +47,15 @@ func (server *Server) pairIdentity(deviceID, pairID string, now time.Time) (Pair
 	if err != nil {
 		return PairIdentity{}, err
 	}
+	// Presence belongs to an account, so the pair is projected for the account the
+	// request is made from — the requesting device's own.
+	viewer, err := server.store.Device(deviceID)
+	if err != nil {
+		return PairIdentity{}, err
+	}
+	account := viewer.UserID
 	project := func(device Device) PairDeviceIdentity {
-		return PairDeviceIdentity{device.ID, device.UserID, device.PublicKey, device.Name, server.sessions.Presence(device.ID, now)}
+		return PairDeviceIdentity{device.ID, account, device.PublicKey, device.Name, server.sessions.Presence(device.ID, account, now)}
 	}
 	return PairIdentity{pair, project(first), project(second)}, nil
 }

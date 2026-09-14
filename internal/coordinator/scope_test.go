@@ -46,8 +46,8 @@ func TestCrossNetworkInvitationDoesNotConsumeShare(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessions := NewSessions(store)
-	sessions.Heartbeat(a.ID, DeviceTelemetry{}, now)
-	sessions.Heartbeat(b.ID, DeviceTelemetry{}, now)
+	sessions.Heartbeat(a.ID, a.UserID, DeviceTelemetry{}, now)
+	sessions.Heartbeat(b.ID, b.UserID, DeviceTelemetry{}, now)
 	if _, err = sessions.Begin(a.ID, pair.ID, 1, now); err == nil {
 		t.Fatal("deleted pair authorized attempt")
 	}

@@ -50,6 +50,13 @@ type Device struct {
 // so an operator can tell builds apart, and is never used for authorization.
 // Empty fields mean "unchanged", so a device that reports nothing keeps what it
 // last reported instead of appearing to lose its identity.
+// heartbeatRequest is the heartbeat body: the device's own report plus the account
+// it is signed in to. The account is optional — a machine signed in nowhere
+// reports no presence and reads as offline — and it is never part of telemetry.
+type heartbeatRequest struct {
+	DeviceTelemetry
+	UserID string `json:"userId"`
+}
 type DeviceTelemetry struct {
 	Version      string `json:"version"`
 	Platform     string `json:"platform"`

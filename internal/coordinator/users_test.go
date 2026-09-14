@@ -114,8 +114,8 @@ func TestPrivateNetworksMembershipAndRevocation(t *testing.T) {
 		}
 	}
 	sessions := NewSessions(store)
-	sessions.Heartbeat(a.ID, DeviceTelemetry{}, now)
-	sessions.Heartbeat(b.ID, DeviceTelemetry{}, now)
+	sessions.Heartbeat(a.ID, a.UserID, DeviceTelemetry{}, now)
+	sessions.Heartbeat(b.ID, b.UserID, DeviceTelemetry{}, now)
 	lease, err := sessions.Begin(a.ID, b.ID, 1, now)
 	if err != nil || lease.UserID != n.UserID || lease.NetworkID == "" {
 		t.Fatal("lease scope missing", err)

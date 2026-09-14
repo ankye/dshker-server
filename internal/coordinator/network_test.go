@@ -124,6 +124,11 @@ func TestRealWSSForwardsOnlyAuthorizedSignedSignal(t *testing.T) {
 		if err != nil || json.Unmarshal(ready, &value) != nil || value["deviceId"] != device.ID || value["type"] != "ready" {
 			t.Fatal("ready identity mismatch", err)
 		}
+		// Presence is reported by the authenticated heartbeat, which names the
+		// account the machine is signed in to; the socket alone no longer does.
+		if err = server.sessions.Heartbeat(device.ID, device.UserID, DeviceTelemetry{}, now); err != nil {
+			t.Fatal(err)
+		}
 		return connection
 	}
 	first, second := dial(a, aKey), dial(b, bKey)
@@ -216,11 +221,11 @@ func TestPresenceLeaseExpiryAndRevocation(t *testing.T) {
 		t.Fatal("offline accepted")
 	}
 	for _, id := range []string{a.ID, b.ID} {
-		if err := sessions.Heartbeat(id, DeviceTelemetry{}, now); err != nil {
+		if err := sessions.Heartbeat(id, a.UserID, DeviceTelemetry{}, now); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if sessions.Presence(a.ID, now.Add(30*time.Second)) != "stale" {
+	if sessions.Presence(a.ID, a.UserID, now.Add(30*time.Second)) != "stale" {
 		t.Fatal("presence did not expire")
 	}
 	lease, err := sessions.Begin(a.ID, b.ID, 1, now)
@@ -245,7 +250,7 @@ func TestPresenceLeaseExpiryAndRevocation(t *testing.T) {
 	if _, err = sessions.Renew(a.ID, b.ID, lease.AttemptID, now.Add(21*time.Second)); err == nil {
 		t.Fatal("unbound lease renewed")
 	}
-	if NewSessions(store).Presence(a.ID, now) != "offline" {
+	if NewSessions(store).Presence(a.ID, a.UserID, now) != "offline" {
 		t.Fatal("restart restored stale online presence")
 	}
 }

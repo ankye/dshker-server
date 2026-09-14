@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,15 +49,32 @@ func NewSessions(store *Store) *Sessions {
 
 // Heartbeat records presence and the reported build.
 //
+// Presence belongs to an account, not to a machine: one machine may be enrolled
+// under several accounts and reports to whichever one it is signed in to. A
+// heartbeat that names no account therefore records no presence at all — that is
+// what "not signed in reads as offline" means — and one that names an account the
+// device is not linked to is refused rather than believed.
+//
 // Telemetry is whatever the device claims about itself; it is descriptive only
 // and never used for authorization, so a device that reports nothing keeps its
 // previously stored values rather than having them blanked.
-func (sessions *Sessions) Heartbeat(id string, telemetry DeviceTelemetry, now time.Time) error {
+func (sessions *Sessions) Heartbeat(id, userID string, telemetry DeviceTelemetry, now time.Time) error {
 	if _, err := sessions.store.Device(id); err != nil {
 		return err
 	}
+	if userID != "" {
+		linked, err := deviceLinkedTo(sessions.store.db, id, userID)
+		if err != nil {
+			return err
+		}
+		if !linked {
+			return errors.New("p2p.device_unauthorized")
+		}
+	}
 	sessions.mu.Lock()
-	sessions.presence[id] = now
+	if userID != "" {
+		sessions.presence[presenceKey(id, userID)] = now
+	}
 	saved, seen := sessions.seenSaved[id]
 	due := !seen || !saved.Add(persistedSeenInterval).After(now)
 	if due {
@@ -72,19 +90,30 @@ func (sessions *Sessions) Heartbeat(id string, telemetry DeviceTelemetry, now ti
 	return nil
 }
 
-func (sessions *Sessions) Offline(id string) {
+// Offline forgets the presence this machine reported for one account, and the
+// presence of every account when none is named (a socket that never carried one).
+func (sessions *Sessions) Offline(id, userID string) {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
-	delete(sessions.presence, id)
+	if userID == "" {
+		for key := range sessions.presence {
+			if strings.HasPrefix(key, id+presenceSeparator) {
+				delete(sessions.presence, key)
+			}
+		}
+	} else {
+		delete(sessions.presence, presenceKey(id, userID))
+	}
 	// Forget the throttle too, so the next heartbeat persists immediately
 	// instead of being suppressed by a write from the previous session.
 	delete(sessions.seenSaved, id)
 }
 
-func (sessions *Sessions) Presence(id string, now time.Time) string {
+// Presence answers for one account: a machine is online only where it reported.
+func (sessions *Sessions) Presence(id, userID string, now time.Time) string {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
-	at, ok := sessions.presence[id]
+	at, ok := sessions.presence[presenceKey(id, userID)]
 	if !ok {
 		return "offline"
 	}
@@ -93,6 +122,12 @@ func (sessions *Sessions) Presence(id string, now time.Time) string {
 	}
 	return "online"
 }
+
+// presenceSeparator cannot appear in either identifier, so a key never collides
+// across the two fields it joins.
+const presenceSeparator = "\x00"
+
+func presenceKey(deviceID, userID string) string { return deviceID + presenceSeparator + userID }
 
 // Begin authorizes a connection attempt by network co-membership.
 //
@@ -115,10 +150,14 @@ func (sessions *Sessions) Begin(sender, targetDeviceID string, generation uint64
 		return Lease{}, errors.New("p2p.invalid_generation")
 	}
 	for _, id := range []string{sender, target} {
-		if _, err := sessions.store.Device(id); err != nil {
+		device, err := sessions.store.Device(id)
+		if err != nil {
 			return Lease{}, err
 		}
-		if !sessions.presence[id].Add(30 * time.Second).After(now) {
+		// Both ends must be signed in to this account and reporting presence for
+		// it: presence is per account, so a machine that is online under another
+		// account is not reachable as this one.
+		if !sessions.presence[presenceKey(id, device.UserID)].Add(30 * time.Second).After(now) {
 			return Lease{}, errors.New("p2p.peer_offline")
 		}
 	}

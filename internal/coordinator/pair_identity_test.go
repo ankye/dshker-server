@@ -61,7 +61,7 @@ func TestPairIdentityRealTLSReadbackAndAdmission(t *testing.T) {
 			t.Fatal("identity response exposed unnecessary credentials")
 		}
 	}
-	if err = server.sessions.Heartbeat(a.ID, DeviceTelemetry{}, now); err != nil {
+	if err = server.sessions.Heartbeat(a.ID, a.UserID, DeviceTelemetry{}, now); err != nil {
 		t.Fatal(err)
 	}
 	assertIdentity(a, aKey, "invited")
@@ -117,7 +117,7 @@ func TestPairIdentityRejectsExpiredUnboundAndRestartedPresence(t *testing.T) {
 			case "unbound":
 				_, err = server.store.db.Exec("UPDATE bindings SET active=0 WHERE network_id=? AND device_id=?", pair.NetworkID, b.ID)
 			case "restart":
-				if err = server.sessions.Heartbeat(a.ID, DeviceTelemetry{}, now); err != nil {
+				if err = server.sessions.Heartbeat(a.ID, a.UserID, DeviceTelemetry{}, now); err != nil {
 					t.Fatal(err)
 				}
 				server.sessions = NewSessions(server.store)

@@ -68,6 +68,9 @@ func (server *Server) serveSignals(writer http.ResponseWriter, request *http.Req
 		writeFailure(writer, "p2p.invalid_signal_origin", http.StatusForbidden)
 		return
 	}
+	// Presence is reported by the authenticated heartbeat, which carries the account
+	// the machine is signed in to; this socket only proves the device is reachable
+	// and clears its presence when it goes away.
 	server.hub.mu.Lock()
 	if _, exists := server.hub.peers[device.ID]; exists {
 		server.hub.mu.Unlock()
@@ -91,15 +94,17 @@ func (server *Server) serveSignals(writer http.ResponseWriter, request *http.Req
 		connection.CloseNow()
 		server.hub.mu.Lock()
 		delete(server.hub.peers, device.ID)
-		server.sessions.Offline(device.ID)
+		server.sessions.Offline(device.ID, "")
 		server.hub.mu.Unlock()
 	}()
 	connection.SetReadLimit(protocol.MaxControlBytes)
 	ctx, cancel := context.WithCancel(request.Context())
 	defer cancel()
 	// Opening the signal socket proves liveness but reports nothing about the
-	// build; empty telemetry leaves whatever the device last reported intact.
-	if err = server.sessions.Heartbeat(device.ID, DeviceTelemetry{}, time.Now()); err != nil {
+	// build; empty telemetry leaves whatever the device last reported intact. With
+	// no account on the socket the machine is signed in nowhere, so nothing is
+	// recorded and it reads as offline.
+	if err = server.sessions.Heartbeat(device.ID, "", DeviceTelemetry{}, time.Now()); err != nil {
 		return
 	}
 	if err = server.hub.send(device.ID, map[string]any{"type": "ready", "version": protocol.Version, "deviceId": device.ID}); err != nil {
