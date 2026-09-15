@@ -31,6 +31,13 @@ func NewID() string {
 
 func ValidID(value string) bool { return identifier.MatchString(value) }
 
+// nonceShape is the shape of a service-identity challenge: sixteen bytes, hex
+// encoded. A challenge is the client's own value, echoed and signed by the
+// coordinator, so it follows the client that mints it rather than an identifier.
+var nonceShape = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+func ValidNonce(value string) bool { return nonceShape.MatchString(value) }
+
 // NewSecret mints a bearer secret: 32 bytes of entropy, hex encoded. Secrets have
 // their own length and are never derived from identifiers, so changing an
 // identifier's shape cannot silently shrink a token.

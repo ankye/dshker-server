@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,9 +56,34 @@ func post(t *testing.T, client *http.Client, address string, body any, target an
 	return response.StatusCode
 }
 
+// The challenge a client asks with is echoed and signed, never interpreted, so
+// the coordinator accepts both shapes a released client can mint: the
+// thirty-two character challenge of every current build, and the
+// twelve-character one that releases up to 0.1.39 produced from the id
+// generator. Anything else is refused before the identity is built.
+func TestIdentityAcceptsBothChallengeShapesAndRefusesOthers(t *testing.T) {
+	_, surface, client, _ := networkServer(t)
+	for _, nonce := range []string{protocol.NewID(), strings.Repeat("a", 32)} {
+		var identity Identity
+		if status := post(t, client, surface.URL+"/v1/identity", identityRequest{nonce}, &identity); status != http.StatusOK {
+			t.Fatalf("challenge %q refused with %d", nonce, status)
+		}
+		if identity.Nonce != nonce {
+			t.Fatalf("challenge %q was not echoed: %q", nonce, identity.Nonce)
+		}
+	}
+	for _, nonce := range []string{"", strings.Repeat("a", 31), strings.Repeat("a", 33), strings.Repeat("A", 32), "0123456789az"} {
+		var identity Identity
+		if status := post(t, client, surface.URL+"/v1/identity", identityRequest{nonce}, &identity); status == http.StatusOK {
+			t.Fatalf("challenge %q was accepted", nonce)
+		}
+	}
+}
+
 func TestRealTLSIdentityEnrollmentAndReadback(t *testing.T) {
 	server, surface, client, now := networkServer(t)
-	nonce := protocol.NewID()
+	// The shape every current client asks with.
+	nonce := "9f2c4d1e6b8a5073c2e91d4f6a7b3c80"
 	var identity Identity
 	if status := post(t, client, surface.URL+"/v1/identity", identityRequest{nonce}, &identity); status != http.StatusOK {
 		t.Fatal(status)

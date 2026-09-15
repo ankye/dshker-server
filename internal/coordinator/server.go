@@ -290,7 +290,13 @@ func (identity Identity) SigningBytes() []byte {
 }
 
 func (server *Server) identity(nonce string) (Identity, error) {
-	if !protocol.ValidID(nonce) {
+	// The challenge is the caller's own value: it is only echoed and signed, and
+	// never used as an identifier, so its shape is checked rather than its
+	// identity. Current clients send the thirty-two character challenge; the
+	// twelve-character form is what releases up to 0.1.39 minted from the id
+	// generator and stays accepted, because a client refused here cannot ask for
+	// an identity by any other call.
+	if !protocol.ValidNonce(nonce) && !protocol.ValidID(nonce) {
 		return Identity{}, errors.New("p2p.invalid_challenge")
 	}
 	identity := Identity{protocol.Version, server.store.ServiceID, server.store.key.Public().(ed25519.PublicKey), server.store.CA.Raw, nonce, server.config.HTTPSOrigin, server.config.WSSURL, server.config.STUNAddress, ""}
